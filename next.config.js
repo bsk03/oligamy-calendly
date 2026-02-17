@@ -5,6 +5,9 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+	// Tylko ikony faktycznie używane w kodzie trafią do bundle'a (tree-shaking)
+	optimizePackageImports: ["@phosphor-icons/react"],
+};
 
 export default config;
