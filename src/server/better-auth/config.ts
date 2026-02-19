@@ -1,15 +1,30 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { admin } from "better-auth/plugins";
 
 import { db } from "@/server/db";
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+const trustedOrigins = [
+	"http://localhost:3000",
+	"http://127.0.0.1:3000",
+	...(appUrl ? [appUrl] : []),
+];
+
 export const auth = betterAuth({
+	trustedOrigins,
 	database: drizzleAdapter(db, {
 		provider: "pg",
 	}),
 	emailAndPassword: {
 		enabled: true,
 	},
+	plugins: [
+		admin({
+			defaultRole: "user",
+			adminRoles: ["admin"],
+		}),
+	],
 });
 
 export type Session = typeof auth.$Infer.Session;

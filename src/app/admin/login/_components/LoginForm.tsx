@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,10 +41,13 @@ export function LoginForm() {
 		});
 
 		if (error) {
-			setServerError(error.message ?? "Login failed");
+			const msg = error.message ?? "Login failed";
+			setServerError(msg);
+			toast.error(msg);
 			return;
 		}
 
+		toast.success("Signed in");
 		router.push("/admin");
 	}
 

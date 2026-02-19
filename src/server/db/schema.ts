@@ -13,6 +13,41 @@ import {
 
 export const createTable = pgTableCreator((name) => `pg-drizzle_${name}`);
 
+// ── Enums ──
+
+export const BookingStatus = {
+	PENDING: "PENDING",
+	CONFIRMED: "CONFIRMED",
+	CANCELLED: "CANCELLED",
+	COMPLETED: "COMPLETED",
+} as const;
+export type BookingStatus = (typeof BookingStatus)[keyof typeof BookingStatus];
+
+export const ACTIVE_BOOKING_STATUSES = [
+	BookingStatus.PENDING,
+	BookingStatus.CONFIRMED,
+] as const;
+
+export const ALL_BOOKING_STATUSES = [
+	BookingStatus.PENDING,
+	BookingStatus.CONFIRMED,
+	BookingStatus.CANCELLED,
+] as const;
+
+export const InvitationStatus = {
+	PENDING: "PENDING",
+	ACCEPTED: "ACCEPTED",
+} as const;
+export type InvitationStatus = (typeof InvitationStatus)[keyof typeof InvitationStatus];
+
+export const CalendarResponseStatus = {
+	NEEDS_ACTION: "needsAction",
+	ACCEPTED: "accepted",
+	DECLINED: "declined",
+	TENTATIVE: "tentative",
+} as const;
+export type CalendarResponseStatus = (typeof CalendarResponseStatus)[keyof typeof CalendarResponseStatus];
+
 export const posts = createTable(
 	"post",
 	(d) => ({
@@ -42,6 +77,10 @@ export const user = pgTable("user", {
 		.$defaultFn(() => false)
 		.notNull(),
 	image: text("image"),
+	role: text("role").notNull().default("user"),
+	banned: boolean("banned"),
+	banReason: text("ban_reason"),
+	banExpires: timestamp("ban_expires"),
 	createdAt: timestamp("created_at")
 		.$defaultFn(() => /* @__PURE__ */ new Date())
 		.notNull(),
@@ -103,11 +142,13 @@ export const profile = createTable(
 			.text()
 			.primaryKey()
 			.references(() => user.id, { onDelete: "cascade" }),
-		username: d.text().notNull().unique(),
 		bio: d.text(),
 		avatarUrl: d.text(),
 		timezone: d.text().notNull().default("Europe/Warsaw"),
 		isVisibleOnHome: d.boolean().notNull().default(true),
+		bookingWindowMode: d.text().notNull().default("relative"), // "relative" | "absolute"
+		bookingWindowDays: d.integer().notNull().default(30),
+		bookingWindowEndDate: d.date(), // only when mode = "absolute"
 		createdAt: d
 			.timestamp({ withTimezone: true })
 			.$defaultFn(() => new Date())
@@ -117,7 +158,7 @@ export const profile = createTable(
 			.$defaultFn(() => new Date())
 			.notNull(),
 	}),
-	(t) => [uniqueIndex("profile_username_idx").on(t.username)],
+	() => [],
 );
 
 export const eventType = createTable(
@@ -219,7 +260,7 @@ export const booking = createTable(
 		startTime: d.timestamp({ withTimezone: true }).notNull(),
 		endTime: d.timestamp({ withTimezone: true }).notNull(),
 		timezone: d.text().notNull(),
-		status: d.text().notNull().default("PENDING"), // PENDING | CONFIRMED | CANCELLED | COMPLETED
+		status: d.text().notNull().default(BookingStatus.PENDING),
 		googleEventId: d.text(),
 		meetLink: d.text(),
 		cancelToken: d
@@ -275,6 +316,36 @@ export const googleCalendarToken = createTable(
 			.$defaultFn(() => new Date())
 			.notNull(),
 	}),
+);
+
+export const invitation = createTable(
+	"invitation",
+	(d) => ({
+		id: d
+			.text()
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		email: d.text().notNull(),
+		token: d
+			.text()
+			.notNull()
+			.unique()
+			.$defaultFn(() => crypto.randomUUID()),
+		invitedBy: d
+			.text()
+			.references(() => user.id, { onDelete: "cascade" }),
+		role: d.text().notNull().default("user"),
+		status: d.text().notNull().default(InvitationStatus.PENDING),
+		expiresAt: d.timestamp({ withTimezone: true }).notNull(),
+		createdAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+	}),
+	(t) => [
+		uniqueIndex("invitation_token_idx").on(t.token),
+		index("invitation_email_idx").on(t.email),
+	],
 );
 
 // ─── Relations ───────────────────────────────────────────────────

@@ -1,4 +1,13 @@
+import { availabilityRouter } from "@/server/api/routers/availability";
+import { bookingRouter } from "@/server/api/routers/booking";
+import { eventTypeRouter } from "@/server/api/routers/eventType";
+import { googleCalendarRouter } from "@/server/api/routers/googleCalendar";
+import { invitationRouter } from "@/server/api/routers/invitation";
 import { postRouter } from "@/server/api/routers/post";
+import { profileRouter } from "@/server/api/routers/profile";
+import { slotsRouter } from "@/server/api/routers/slots";
+import { teamRouter } from "@/server/api/routers/team";
+import { userRouter } from "@/server/api/routers/user";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
@@ -8,6 +17,15 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  */
 export const appRouter = createTRPCRouter({
 	post: postRouter,
+	googleCalendar: googleCalendarRouter,
+	eventType: eventTypeRouter,
+	availability: availabilityRouter,
+	booking: bookingRouter,
+	invitation: invitationRouter,
+	profile: profileRouter,
+	user: userRouter,
+	slots: slotsRouter,
+	team: teamRouter,
 });
 
 // export type definition of API
