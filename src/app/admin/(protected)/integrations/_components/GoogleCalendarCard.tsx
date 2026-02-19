@@ -12,8 +12,11 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
+
+import { CalendarSelector } from "./CalendarSelector";
 
 export function GoogleCalendarCard() {
 	const status = api.googleCalendar.getStatus.useQuery();
@@ -56,29 +59,35 @@ export function GoogleCalendarCard() {
 						Checking connection...
 					</div>
 				) : connected ? (
-					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-							<Check className="size-4" />
-							Connected
-							{status.data?.calendarId && (
-								<span className="text-muted-foreground">
-									({status.data.calendarId})
-								</span>
-							)}
+					<div className="space-y-4">
+						<div className="flex items-center justify-between">
+							<div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+								<Check className="size-4" />
+								Connected
+								{status.data?.calendarId && (
+									<span className="text-muted-foreground">
+										({status.data.calendarId})
+									</span>
+								)}
+							</div>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => disconnect.mutate()}
+								disabled={disconnect.isPending}
+							>
+								{disconnect.isPending ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<Unlink className="size-4" />
+								)}
+								Disconnect
+							</Button>
 						</div>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => disconnect.mutate()}
-							disabled={disconnect.isPending}
-						>
-							{disconnect.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Unlink className="size-4" />
-							)}
-							Disconnect
-						</Button>
+
+						<Separator />
+
+						<CalendarSelector />
 					</div>
 				) : (
 					<Button

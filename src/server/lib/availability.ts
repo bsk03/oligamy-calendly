@@ -1,7 +1,7 @@
-import { and, eq, gte, lt, inArray } from "drizzle-orm";
-import { google } from "googleapis";
+import { and, eq, gte, lt, inArray } from 'drizzle-orm';
+import { google } from 'googleapis';
 
-import type { db as DbType } from "@/server/db";
+import type { db as DbType } from '@/server/db';
 import {
 	ACTIVE_BOOKING_STATUSES,
 	availability,
@@ -10,8 +10,8 @@ import {
 	eventType,
 	googleCalendarToken,
 	profile,
-} from "@/server/db/schema";
-import { getOAuth2Client } from "@/server/lib/google-calendar";
+} from '@/server/db/schema';
+import { getOAuth2Client } from '@/server/lib/google-calendar';
 
 type Db = typeof DbType;
 
@@ -45,24 +45,21 @@ export async function getAvailableDatesForMonth(
 		.where(eq(profile.userId, userId))
 		.limit(1);
 
-	const timezone = userProfile?.timezone ?? "Europe/Warsaw";
+	const timezone = userProfile?.timezone ?? 'Europe/Warsaw';
 
 	// Fetch weekly availability
 	const weeklySlots = await db
 		.select()
 		.from(availability)
 		.where(
-			and(
-				eq(availability.userId, userId),
-				eq(availability.isAvailable, true),
-			),
+			and(eq(availability.userId, userId), eq(availability.isAvailable, true)),
 		);
 
 	// Fetch overrides for this month
-	const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+	const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
 	const nextMonth = month === 12 ? 1 : month + 1;
 	const nextYear = month === 12 ? year + 1 : year;
-	const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
+	const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
 
 	const overrides = await db
 		.select()
@@ -85,8 +82,14 @@ export async function getAvailableDatesForMonth(
 
 	// Compute max bookable date from profile-level booking window
 	let maxBookableDate: Date;
-	if (userProfile?.bookingWindowMode === "absolute" && userProfile.bookingWindowEndDate) {
-		maxBookableDate = parseLocalDate(userProfile.bookingWindowEndDate, timezone);
+	if (
+		userProfile?.bookingWindowMode === 'absolute' &&
+		userProfile.bookingWindowEndDate
+	) {
+		maxBookableDate = parseLocalDate(
+			userProfile.bookingWindowEndDate,
+			timezone,
+		);
 		maxBookableDate.setHours(23, 59, 59, 999);
 	} else {
 		const windowDays = userProfile?.bookingWindowDays ?? 30;
@@ -99,7 +102,7 @@ export async function getAvailableDatesForMonth(
 	const candidates: { dateStr: string; dayStart: Date; dayEnd: Date }[] = [];
 
 	for (let day = 1; day <= daysInMonth; day++) {
-		const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 		const dateObj = parseLocalDate(dateStr, timezone);
 
 		const endOfDay = new Date(dateObj);
@@ -112,7 +115,8 @@ export async function getAvailableDatesForMonth(
 		let endTimeStr: string | null = null;
 
 		if (override) {
-			if (!override.isAvailable || !override.startTime || !override.endTime) continue;
+			if (!override.isAvailable || !override.startTime || !override.endTime)
+				continue;
 			startTimeStr = override.startTime;
 			endTimeStr = override.endTime;
 		} else {
@@ -123,8 +127,8 @@ export async function getAvailableDatesForMonth(
 			endTimeStr = ws.endTime;
 		}
 
-		const [sh, sm] = startTimeStr.split(":").map(Number) as [number, number];
-		const [eh, em] = endTimeStr.split(":").map(Number) as [number, number];
+		const [sh, sm] = startTimeStr.split(':').map(Number) as [number, number];
+		const [eh, em] = endTimeStr.split(':').map(Number) as [number, number];
 
 		const dayStart = parseLocalDate(dateStr, timezone);
 		dayStart.setHours(sh, sm, 0, 0);
@@ -218,7 +222,7 @@ export async function getAvailableSlots(
 		.where(eq(profile.userId, userId))
 		.limit(1);
 
-	const timezone = userProfile?.timezone ?? "Europe/Warsaw";
+	const timezone = userProfile?.timezone ?? 'Europe/Warsaw';
 
 	// 3. Check override for this date
 	const [override] = await db
@@ -266,14 +270,11 @@ export async function getAvailableSlots(
 	const duration = et.durationMinutes;
 	const slots: { start: Date; end: Date }[] = [];
 
-	const [startHour, startMin] = startTime.split(":").map(Number) as [
+	const [startHour, startMin] = startTime.split(':').map(Number) as [
 		number,
 		number,
 	];
-	const [endHour, endMin] = endTime.split(":").map(Number) as [
-		number,
-		number,
-	];
+	const [endHour, endMin] = endTime.split(':').map(Number) as [number, number];
 
 	const dayStart = parseLocalDate(dateString, timezone);
 	dayStart.setHours(startHour, startMin, 0, 0);
@@ -294,8 +295,14 @@ export async function getAvailableSlots(
 	const earliestBookable = new Date(now.getTime() + minNoticeMs);
 
 	let maxBookableDate: Date;
-	if (userProfile?.bookingWindowMode === "absolute" && userProfile.bookingWindowEndDate) {
-		maxBookableDate = parseLocalDate(userProfile.bookingWindowEndDate, timezone);
+	if (
+		userProfile?.bookingWindowMode === 'absolute' &&
+		userProfile.bookingWindowEndDate
+	) {
+		maxBookableDate = parseLocalDate(
+			userProfile.bookingWindowEndDate,
+			timezone,
+		);
 		maxBookableDate.setHours(23, 59, 59, 999);
 	} else {
 		const windowDays = userProfile?.bookingWindowDays ?? 30;
@@ -363,9 +370,9 @@ export async function getGoogleCalendarBusyPeriods(
 	timeMin: Date,
 	timeMax: Date,
 ): Promise<{ start: Date; end: Date }[]> {
-	const logPrefix = "[Google Calendar]";
+	const logPrefix = '[Google Calendar]';
 	try {
-		console.log(logPrefix, "Pobieranie zajętości", {
+		console.log(logPrefix, 'Pobieranie zajętości', {
 			userId,
 			timeMin: timeMin.toISOString(),
 			timeMax: timeMax.toISOString(),
@@ -378,7 +385,7 @@ export async function getGoogleCalendarBusyPeriods(
 			.limit(1);
 
 		if (!token) {
-			console.log(logPrefix, "Brak tokenu dla użytkownika, pomijam kalendarz", {
+			console.log(logPrefix, 'Brak tokenu dla użytkownika, pomijam kalendarz', {
 				userId,
 			});
 			return [];
@@ -388,7 +395,7 @@ export async function getGoogleCalendarBusyPeriods(
 
 		// Auto-refresh if expired
 		if (token.expiresAt < new Date()) {
-			console.log(logPrefix, "Odświeżanie wygasłego tokenu", { userId });
+			console.log(logPrefix, 'Odświeżanie wygasłego tokenu', { userId });
 			oauth2.setCredentials({ refresh_token: token.refreshToken });
 			const { credentials } = await oauth2.refreshAccessToken();
 
@@ -414,10 +421,10 @@ export async function getGoogleCalendarBusyPeriods(
 			});
 		}
 
-		const calendar = google.calendar({ version: "v3", auth: oauth2 });
-		const calendarIds = token.busyCalendarIds ?? ["primary"];
+		const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+		const calendarIds = token.busyCalendarIds ?? ['primary'];
 
-		console.log(logPrefix, "Wywołanie FreeBusy API", {
+		console.log(logPrefix, 'Wywołanie FreeBusy API', {
 			userId,
 			calendarIds,
 		});
@@ -435,6 +442,7 @@ export async function getGoogleCalendarBusyPeriods(
 		if (calendars) {
 			for (const calId of calendarIds) {
 				const cal = calendars[calId];
+
 				if (cal?.busy) {
 					for (const period of cal.busy) {
 						if (period.start && period.end) {
@@ -448,15 +456,19 @@ export async function getGoogleCalendarBusyPeriods(
 			}
 		}
 
-		console.log(logPrefix, "Pobrano zajętość z Google Calendar", {
+		console.log(logPrefix, 'Podsumowanie FreeBusy', {
 			userId,
 			calendarIds,
 			busyPeriodsCount: busyPeriods.length,
+			allBusy: busyPeriods.map((p) => ({
+				start: p.start.toISOString(),
+				end: p.end.toISOString(),
+			})),
 		});
 
 		return busyPeriods;
 	} catch (err) {
-		console.error(logPrefix, "Błąd FreeBusy:", { userId, err });
+		console.error(logPrefix, 'Błąd FreeBusy:', { userId, err });
 		return [];
 	}
 }
@@ -466,7 +478,7 @@ export async function getGoogleCalendarBusyPeriods(
  * Simple approach: we create a date from the string parts which gives us local midnight.
  */
 function parseLocalDate(dateStr: string, _timezone: string): Date {
-	const [year, month, day] = dateStr.split("-").map(Number) as [
+	const [year, month, day] = dateStr.split('-').map(Number) as [
 		number,
 		number,
 		number,

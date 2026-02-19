@@ -170,6 +170,42 @@ export async function getCalendarEventStatus(opts: {
 }
 
 /**
+ * Lists all calendars accessible by the user.
+ * Returns calendar id, summary, background color, whether it's primary, and access role.
+ */
+export async function listUserCalendars(opts: {
+	accessToken: string;
+	refreshToken: string;
+}): Promise<
+	{
+		id: string;
+		summary: string;
+		backgroundColor: string;
+		primary: boolean;
+		accessRole: string;
+	}[]
+> {
+	const oauth2 = getOAuth2Client();
+	oauth2.setCredentials({
+		access_token: opts.accessToken,
+		refresh_token: opts.refreshToken,
+	});
+
+	const calendar = google.calendar({ version: "v3", auth: oauth2 });
+	const res = await calendar.calendarList.list();
+
+	return (res.data.items ?? [])
+		.filter((item) => !item.deleted && item.id)
+		.map((item) => ({
+			id: item.id!,
+			summary: item.summaryOverride ?? item.summary ?? item.id!,
+			backgroundColor: item.backgroundColor ?? "#3B82F6",
+			primary: item.primary ?? false,
+			accessRole: item.accessRole ?? "reader",
+		}));
+}
+
+/**
  * Declines a Google Calendar event (sets host responseStatus to "declined").
  */
 export async function declineCalendarEvent(opts: {
