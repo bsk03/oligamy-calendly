@@ -4,6 +4,7 @@ import { Globe, Users } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GoogleMeetIcon } from "@/components/icons";
+import { useTranslation } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 
 const TIMEZONES = [
@@ -93,6 +94,7 @@ export function PersonEventSelector({
 	locked = false,
 	groupData,
 }: PersonEventSelectorProps) {
+	const { t } = useTranslation();
 	const selectedPerson = people.find((p) => p.userId === selectedUserId);
 
 	// Group mode
@@ -120,7 +122,7 @@ export function PersonEventSelector({
 				{groupData.host && (
 					<div>
 						<p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-							Host
+							{t.personEventSelector.host}
 						</p>
 						<div className="flex items-center gap-2">
 							<Avatar size="sm">
@@ -147,7 +149,7 @@ export function PersonEventSelector({
 				{groupData.members.length > 0 && (
 					<div>
 						<p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-							Members
+							{t.personEventSelector.members}
 						</p>
 						<div className="flex flex-wrap gap-1.5">
 							{groupData.members.map((member) => (
@@ -189,7 +191,7 @@ export function PersonEventSelector({
 				{groupData.durations.length > 0 && (
 					<div>
 						<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-							Duration
+							{t.personEventSelector.duration}
 						</p>
 						<div className="flex flex-wrap gap-1.5">
 							{groupData.durations.map((d) => (
@@ -204,7 +206,7 @@ export function PersonEventSelector({
 											: "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700",
 									)}
 								>
-									{d} min
+									{t.personEventSelector.min(d)}
 								</button>
 							))}
 						</div>
@@ -273,7 +275,7 @@ export function PersonEventSelector({
 					{/* Expert Selection — Avatar Row */}
 					<div>
 						<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-							Select Expert
+							{t.personEventSelector.selectExpert}
 						</p>
 						{people.length === 0 ? (
 							<div className="flex gap-2.5 pb-1">
@@ -345,7 +347,7 @@ export function PersonEventSelector({
 			{selectedPerson && durations.length > 0 && (
 				<div>
 					<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-						Duration
+						{t.personEventSelector.duration}
 					</p>
 					<div className="flex flex-wrap gap-1.5">
 						{durations.map((d) => (
@@ -360,7 +362,7 @@ export function PersonEventSelector({
 										: "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700",
 								)}
 							>
-								{d} min
+								{t.personEventSelector.min(d)}
 							</button>
 						))}
 					</div>
@@ -370,7 +372,7 @@ export function PersonEventSelector({
 			{/* No event types warning */}
 			{selectedPerson && durations.length === 0 && (
 				<p className="text-xs text-muted-foreground">
-					This expert has no meeting types configured yet.
+					{t.personEventSelector.noMeetingTypes}
 				</p>
 			)}
 

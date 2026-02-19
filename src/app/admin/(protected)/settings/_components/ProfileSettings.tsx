@@ -45,6 +45,7 @@ export function ProfileSettings() {
 	const [bookingWindowMode, setBookingWindowMode] = useState<"relative" | "absolute">("relative");
 	const [bookingWindowDays, setBookingWindowDays] = useState(30);
 	const [bookingWindowEndDate, setBookingWindowEndDate] = useState("");
+	const [defaultLocale, setDefaultLocale] = useState<"en" | "pl">("en");
 
 	useEffect(() => {
 		if (profileData) {
@@ -57,6 +58,7 @@ export function ProfileSettings() {
 			);
 			setBookingWindowDays(profileData.bookingWindowDays ?? 30);
 			setBookingWindowEndDate(profileData.bookingWindowEndDate ?? "");
+			setDefaultLocale((profileData.defaultLocale as "en" | "pl") ?? "en");
 		}
 	}, [profileData]);
 
@@ -82,6 +84,7 @@ export function ProfileSettings() {
 			bookingWindowMode,
 			bookingWindowDays,
 			bookingWindowEndDate: bookingWindowMode === "absolute" ? (bookingWindowEndDate || null) : null,
+			defaultLocale,
 		});
 	};
 
@@ -101,7 +104,8 @@ export function ProfileSettings() {
 			isVisibleOnHome !== profileData.isVisibleOnHome ||
 			bookingWindowMode !== ((profileData.bookingWindowMode as string) ?? "relative") ||
 			bookingWindowDays !== (profileData.bookingWindowDays ?? 30) ||
-			bookingWindowEndDate !== (profileData.bookingWindowEndDate ?? ""));
+			bookingWindowEndDate !== (profileData.bookingWindowEndDate ?? "") ||
+			defaultLocale !== ((profileData.defaultLocale as string) ?? "en"));
 
 	return (
 		<div className="grid gap-6">
@@ -165,6 +169,22 @@ export function ProfileSettings() {
 								</option>
 							))}
 						</select>
+					</div>
+
+					<div className="grid gap-2">
+						<Label htmlFor="defaultLocale">Default booking language</Label>
+						<select
+							id="defaultLocale"
+							value={defaultLocale}
+							onChange={(e) => setDefaultLocale(e.target.value as "en" | "pl")}
+							className="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+						>
+							<option value="en">English</option>
+							<option value="pl">Polski</option>
+						</select>
+						<p className="text-xs text-muted-foreground">
+							The default language guests see on your booking page. They can switch manually.
+						</p>
 					</div>
 
 					<div className="flex items-center justify-between rounded-lg border p-4">

@@ -1,0 +1,1 @@
+ALTER TABLE "pg-drizzle_profile" ADD COLUMN "defaultLocale" text DEFAULT 'en' NOT NULL;

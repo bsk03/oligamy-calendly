@@ -2,7 +2,9 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { BookingCard } from "@/components/booking/BookingCard";
+import { LanguageSwitcher } from "@/components/booking/LanguageSwitcher";
 import { env } from "@/env";
+import { LocaleProvider } from "@/i18n/context";
 import { api, HydrateClient } from "@/trpc/server";
 
 export const dynamic = "force-dynamic";
@@ -33,18 +35,21 @@ export default async function Home() {
 	const subdomain = getSubdomain(host, env.NEXT_PUBLIC_APP_URL);
 
 	let groupSlug: string | null = null;
+	let defaultLocale: string = "en";
 
 	if (subdomain) {
 		// First try group, then user
 		const groupData = await api.group.bySlug({ slug: subdomain });
 		if (groupData) {
 			groupSlug = subdomain;
+			defaultLocale = groupData.host?.defaultLocale ?? "en";
 			void api.group.bySlug.prefetch({ slug: subdomain });
 		} else {
 			const person = await api.user.byUsername({ username: subdomain });
 			if (!person) {
 				redirect(env.NEXT_PUBLIC_APP_URL);
 			}
+			defaultLocale = person.defaultLocale;
 			void api.user.byUsername.prefetch({ username: subdomain });
 		}
 	} else {
@@ -53,20 +58,23 @@ export default async function Home() {
 
 	return (
 		<HydrateClient>
-			<main className="flex min-h-svh flex-col items-center justify-center bg-background px-3 py-6 md:p-4">
-				<div className="flex w-full max-w-5xl flex-col items-center gap-6">
-					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img
-						src="/logo.svg"
-						alt="Oligamy Software"
-						className="h-8 w-auto"
-					/>
-					<BookingCard
-						username={groupSlug ? null : subdomain}
-						groupSlug={groupSlug}
-					/>
-				</div>
-			</main>
+			<LocaleProvider defaultLocale={defaultLocale}>
+				<main className="flex min-h-svh flex-col items-center justify-center bg-background px-3 py-6 md:p-4">
+					<div className="flex w-full max-w-5xl flex-col items-center gap-6">
+						{/* eslint-disable-next-line @next/next/no-img-element */}
+						<img
+							src="/logo.svg"
+							alt="Oligamy Software"
+							className="h-8 w-auto"
+						/>
+						<BookingCard
+							username={groupSlug ? null : subdomain}
+							groupSlug={groupSlug}
+						/>
+					</div>
+				</main>
+				<LanguageSwitcher />
+			</LocaleProvider>
 		</HydrateClient>
 	);
 }

@@ -2,6 +2,7 @@
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 
 interface TimeSlot {
@@ -20,9 +21,9 @@ interface TimeSlotListProps {
 	timezone: string;
 }
 
-function formatTime(isoString: string, is24h: boolean, timezone: string): string {
+function formatTime(isoString: string, is24h: boolean, timezone: string, intlLocale: string): string {
 	const date = new Date(isoString);
-	return date.toLocaleTimeString("en-US", {
+	return date.toLocaleTimeString(intlLocale, {
 		hour: "2-digit",
 		minute: "2-digit",
 		hour12: !is24h,
@@ -30,14 +31,14 @@ function formatTime(isoString: string, is24h: boolean, timezone: string): string
 	});
 }
 
-function formatDateHeader(dateString: string): string {
+function formatDateHeader(dateString: string, intlLocale: string): string {
 	const [y, m, d] = dateString.split("-").map(Number) as [
 		number,
 		number,
 		number,
 	];
 	const date = new Date(y, m - 1, d);
-	return new Intl.DateTimeFormat("en-US", {
+	return new Intl.DateTimeFormat(intlLocale, {
 		weekday: "short",
 		month: "short",
 		day: "numeric",
@@ -54,6 +55,7 @@ export function TimeSlotList({
 	onTimeFormatChange,
 	timezone,
 }: TimeSlotListProps) {
+	const { t, intlLocale } = useTranslation();
 	const is24h = timeFormat === "24h";
 	const isFillingUp = slots.length > 0 && slots.length <= 3;
 
@@ -78,7 +80,7 @@ export function TimeSlotList({
 			{/* Header: formatted date + 12h/24h toggle */}
 			<div className="flex shrink-0 items-center justify-between gap-2">
 				<h3 className="text-sm font-semibold">
-					{formatDateHeader(dateString)}
+					{formatDateHeader(dateString, intlLocale)}
 				</h3>
 				<div className="flex overflow-hidden rounded-md border text-[11px] font-medium">
 					<button
@@ -112,7 +114,7 @@ export function TimeSlotList({
 			{slots.length === 0 ? (
 				<div className="flex flex-1 items-center justify-center">
 					<p className="text-[13px] text-muted-foreground">
-						No available times
+						{t.timeSlotList.noAvailableTimes}
 					</p>
 				</div>
 			) : (
@@ -142,7 +144,7 @@ export function TimeSlotList({
 													: "bg-emerald-400",
 										)}
 									/>
-									{formatTime(slot.start, is24h, timezone)}
+									{formatTime(slot.start, is24h, timezone, intlLocale)}
 								</button>
 							);
 						})}

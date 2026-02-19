@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useTranslation } from "@/i18n/context";
 import { api } from "@/trpc/react";
 
 import { BookingCalendar } from "./BookingCalendar";
@@ -20,6 +21,7 @@ interface BookingCardProps {
 }
 
 export function BookingCard({ username, groupSlug }: BookingCardProps) {
+	const { t } = useTranslation();
 	const [step, setStep] = useState<Step>("select");
 	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [selectedDuration, setSelectedDuration] = useState<number | null>(
@@ -384,17 +386,15 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 										onClick={() => setStep("form")}
 										className="mt-4 w-full shrink-0"
 									>
-										Continue
+										{t.bookingCard.continue}
 										<ArrowRight className="size-4" />
 									</Button>
 								)}
 							</div>
 						) : (
 							<div className="flex h-full items-center justify-center py-6 md:py-0">
-								<p className="text-center text-[13px] text-muted-foreground">
-									Select a date to see
-									<br />
-									available times
+								<p className="text-center text-[13px] text-muted-foreground whitespace-pre-line">
+									{t.bookingCard.selectDatePrompt}
 								</p>
 							</div>
 						)}

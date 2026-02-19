@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod/v4";
 import {
 	Loader2,
 	Pencil,
@@ -51,9 +54,10 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 	const [editDescription, setEditDescription] = useState("");
 	const [editHostUserId, setEditHostUserId] = useState("");
 
-	const [newEtTitle, setNewEtTitle] = useState("");
-	const [newEtDuration, setNewEtDuration] = useState("30");
-	const [newEtDescription, setNewEtDescription] = useState("");
+	const newEtForm = useForm<NewEventTypeForm>({
+		resolver: zodResolver(newEventTypeSchema),
+		defaultValues: { title: "", durationMinutes: 30, description: "", minimumNoticeHours: 2 },
+	});
 
 	const [addMemberId, setAddMemberId] = useState("");
 
@@ -97,9 +101,7 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 		onSuccess: () => {
 			toast.success("Event type created");
 			void utils.group.getById.invalidate({ id: groupId });
-			setNewEtTitle("");
-			setNewEtDuration("30");
-			setNewEtDescription("");
+			newEtForm.reset();
 		},
 		onError: (err) => toast.error(err.message),
 	});
@@ -387,106 +389,78 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 
 				<div className="space-y-2">
 					{group.eventTypes.map((et) => (
-						<div
+						<GroupEventTypeRow
 							key={et.id}
-							className="flex items-center gap-3 rounded-md border px-3 py-2"
-						>
-							<div className="min-w-0 flex-1">
-								<div className="flex items-center gap-2">
-									<span className="text-sm font-medium">
-										{et.title}
-									</span>
-									<Badge
-										variant="secondary"
-										className="text-[10px] px-1.5 py-0"
-									>
-										{et.durationMinutes} min
-									</Badge>
-									{!et.isActive && (
-										<Badge
-											variant="outline"
-											className="text-[10px] px-1.5 py-0"
-										>
-											Inactive
-										</Badge>
-									)}
-								</div>
-								{et.description && (
-									<p className="text-xs text-muted-foreground truncate">
-										{et.description}
-									</p>
-								)}
-							</div>
-							<Switch
-								checked={et.isActive}
-								onCheckedChange={(checked) =>
-									toggleEventType.mutate({
-										id: et.id,
-										isActive: checked,
-									})
+							et={et}
+							onToggle={(checked) =>
+								toggleEventType.mutate({ id: et.id, isActive: checked })
+							}
+							onUpdateNotice={(hours) =>
+								toggleEventType.mutate({ id: et.id, minimumNoticeHours: hours })
+							}
+							onDelete={() => {
+								if (confirm("Delete this event type?")) {
+									deleteEventType.mutate({ id: et.id });
 								}
-							/>
-							<Button
-								size="sm"
-								variant="ghost"
-								className="size-7 p-0 text-destructive hover:text-destructive"
-								onClick={() => {
-									if (confirm("Delete this event type?")) {
-										deleteEventType.mutate({ id: et.id });
-									}
-								}}
-							>
-								<Trash2 className="size-3.5" />
-							</Button>
-						</div>
+							}}
+						/>
 					))}
 				</div>
 
 				{/* Create event type */}
-				<div className="mt-3 rounded-md border p-3">
+				<form
+					className="mt-3 rounded-md border p-3"
+					onSubmit={newEtForm.handleSubmit((data) => {
+						createEventType.mutate({
+							groupId,
+							title: data.title.trim(),
+							durationMinutes: data.durationMinutes,
+							description: data.description?.trim() || undefined,
+							minimumNoticeHours: data.minimumNoticeHours,
+						});
+					})}
+				>
 					<p className="mb-2 text-xs font-medium text-muted-foreground">
 						Add Event Type
 					</p>
 					<div className="grid gap-2">
 						<div className="flex gap-2">
 							<Input
-								value={newEtTitle}
-								onChange={(e) => setNewEtTitle(e.target.value)}
 								placeholder="Title (e.g. Sales Call)"
 								className="h-8 text-sm flex-1"
+								{...newEtForm.register("title")}
 							/>
 							<Input
 								type="number"
-								value={newEtDuration}
-								onChange={(e) => setNewEtDuration(e.target.value)}
 								placeholder="Min"
 								className="h-8 text-sm w-20"
 								min={5}
 								max={480}
+								{...newEtForm.register("durationMinutes", { valueAsNumber: true })}
 							/>
 						</div>
-						<Input
-							value={newEtDescription}
-							onChange={(e) => setNewEtDescription(e.target.value)}
-							placeholder="Description (optional)"
-							className="h-8 text-sm"
-						/>
+						<div className="flex gap-2">
+							<Input
+								placeholder="Description (optional)"
+								className="h-8 text-sm flex-1"
+								{...newEtForm.register("description")}
+							/>
+							<div className="flex items-center gap-1">
+								<Input
+									type="number"
+									className="h-8 text-sm w-16"
+									min={0}
+									max={168}
+									{...newEtForm.register("minimumNoticeHours", { valueAsNumber: true })}
+								/>
+								<span className="text-xs text-muted-foreground whitespace-nowrap">h notice</span>
+							</div>
+						</div>
 						<Button
+							type="submit"
 							size="sm"
 							className="h-8"
-							disabled={
-								!newEtTitle.trim() ||
-								!newEtDuration ||
-								createEventType.isPending
-							}
-							onClick={() => {
-								createEventType.mutate({
-									groupId,
-									title: newEtTitle.trim(),
-									durationMinutes: Number(newEtDuration),
-									description: newEtDescription.trim() || undefined,
-								});
-							}}
+							disabled={createEventType.isPending}
 						>
 							{createEventType.isPending ? (
 								<Loader2 className="size-3.5 animate-spin" />
@@ -496,8 +470,128 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 							Add Event Type
 						</Button>
 					</div>
-				</div>
+				</form>
 			</div>
+		</div>
+	);
+}
+
+// ─── Schemas ─────────────────────────────────────────────────────
+
+const newEventTypeSchema = z.object({
+	title: z.string().min(1),
+	durationMinutes: z.number().int().min(5).max(480),
+	description: z.string().optional(),
+	minimumNoticeHours: z.number().int().min(0).max(168),
+});
+
+type NewEventTypeForm = z.infer<typeof newEventTypeSchema>;
+
+const editNoticeSchema = z.object({
+	minimumNoticeHours: z.number().int().min(0).max(168),
+});
+
+type EditNoticeForm = z.infer<typeof editNoticeSchema>;
+
+// ─── GroupEventTypeRow ───────────────────────────────────────────
+
+function formatNotice(hours: number) {
+	if (hours === 0) return "No";
+	if (hours < 24) return `${hours}h`;
+	const days = Math.floor(hours / 24);
+	const rem = hours % 24;
+	return rem > 0 ? `${days}d ${rem}h` : `${days}d`;
+}
+
+function GroupEventTypeRow({
+	et,
+	onToggle,
+	onUpdateNotice,
+	onDelete,
+}: {
+	et: {
+		id: string;
+		title: string;
+		durationMinutes: number;
+		description: string | null;
+		isActive: boolean;
+		minimumNoticeHours: number;
+	};
+	onToggle: (checked: boolean) => void;
+	onUpdateNotice: (hours: number) => void;
+	onDelete: () => void;
+}) {
+	const [editingNotice, setEditingNotice] = useState(false);
+
+	const noticeForm = useForm<EditNoticeForm>({
+		resolver: zodResolver(editNoticeSchema),
+		defaultValues: { minimumNoticeHours: et.minimumNoticeHours },
+	});
+
+	const handleNoticeSave = (data: EditNoticeForm) => {
+		if (data.minimumNoticeHours !== et.minimumNoticeHours) {
+			onUpdateNotice(data.minimumNoticeHours);
+		}
+		setEditingNotice(false);
+	};
+
+	return (
+		<div className="flex items-center gap-3 rounded-md border px-3 py-2">
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center gap-2">
+					<span className="text-sm font-medium">{et.title}</span>
+					<Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+						{et.durationMinutes} min
+					</Badge>
+					{editingNotice ? (
+						<form
+							onSubmit={noticeForm.handleSubmit(handleNoticeSave)}
+							className="flex items-center gap-1"
+						>
+							<Input
+								type="number"
+								className="h-6 w-14 text-[10px] px-1.5"
+								min={0}
+								max={168}
+								autoFocus
+								{...noticeForm.register("minimumNoticeHours", { valueAsNumber: true })}
+								onBlur={noticeForm.handleSubmit(handleNoticeSave)}
+							/>
+							<span className="text-[10px] text-muted-foreground">h</span>
+						</form>
+					) : (
+						<Badge
+							variant="outline"
+							className="text-[10px] px-1.5 py-0 cursor-pointer hover:bg-muted"
+							onClick={() => {
+								noticeForm.reset({ minimumNoticeHours: et.minimumNoticeHours });
+								setEditingNotice(true);
+							}}
+						>
+							{formatNotice(et.minimumNoticeHours)} notice
+						</Badge>
+					)}
+					{!et.isActive && (
+						<Badge variant="outline" className="text-[10px] px-1.5 py-0">
+							Inactive
+						</Badge>
+					)}
+				</div>
+				{et.description && (
+					<p className="text-xs text-muted-foreground truncate">
+						{et.description}
+					</p>
+				)}
+			</div>
+			<Switch checked={et.isActive} onCheckedChange={onToggle} />
+			<Button
+				size="sm"
+				variant="ghost"
+				className="size-7 p-0 text-destructive hover:text-destructive"
+				onClick={onDelete}
+			>
+				<Trash2 className="size-3.5" />
+			</Button>
 		</div>
 	);
 }

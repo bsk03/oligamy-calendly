@@ -41,6 +41,7 @@ export const profileRouter = createTRPCRouter({
 			avatarUrl: null as string | null,
 			timezone: "Europe/Warsaw",
 			isVisibleOnHome: false,
+			defaultLocale: "en" as string,
 			bookingWindowMode: "relative" as string,
 			bookingWindowDays: 30,
 			bookingWindowEndDate: null as string | null,
@@ -66,6 +67,7 @@ export const profileRouter = createTRPCRouter({
 				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
 				bookingWindowDays: z.number().int().min(1).max(365).optional(),
 				bookingWindowEndDate: z.string().nullable().optional(), // "YYYY-MM-DD" or null
+			defaultLocale: z.enum(["en", "pl"]).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -122,6 +124,9 @@ export const profileRouter = createTRPCRouter({
 				}),
 				...(input.bookingWindowEndDate !== undefined && {
 					bookingWindowEndDate: input.bookingWindowEndDate,
+				}),
+				...(input.defaultLocale !== undefined && {
+					defaultLocale: input.defaultLocale,
 				}),
 			};
 

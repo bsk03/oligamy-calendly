@@ -2,9 +2,8 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { useTranslation } from "@/i18n/context";
 import { cn } from "@/lib/utils";
-
-const DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 interface BookingCalendarProps {
 	currentMonth: Date;
@@ -23,6 +22,7 @@ export function BookingCalendar({
 	onDateSelect,
 	onMonthChange,
 }: BookingCalendarProps) {
+	const { t, intlLocale } = useTranslation();
 	const year = currentMonth.getFullYear();
 	const month = currentMonth.getMonth();
 
@@ -38,7 +38,7 @@ export function BookingCalendar({
 		year < today.getFullYear() ||
 		(year === today.getFullYear() && month <= today.getMonth());
 
-	const monthLabel = new Intl.DateTimeFormat("en-US", {
+	const monthLabel = new Intl.DateTimeFormat(intlLocale, {
 		month: "long",
 	}).format(currentMonth);
 
@@ -77,9 +77,9 @@ export function BookingCalendar({
 
 			{/* Day headers */}
 			<div className="mb-1 grid grid-cols-7 gap-x-1">
-				{DAY_LABELS.map((label) => (
+				{t.bookingCalendar.dayLabels.map((label, i) => (
 					<div
-						key={label}
+						key={i}
 						className="flex h-8 items-center justify-center text-[11px] font-semibold tracking-wider text-muted-foreground"
 					>
 						{label}

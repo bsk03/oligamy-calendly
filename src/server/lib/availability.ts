@@ -634,10 +634,22 @@ export async function getGroupAvailableDatesForMonth(
 	year: number,
 	month: number,
 ): Promise<string[]> {
+	const LOG = '[GroupDates]';
+	console.log(LOG, 'START', { groupEventTypeId, year, month });
+
 	const info = await resolveGroupInfo(db, groupEventTypeId);
-	if (!info) return [];
+	if (!info) {
+		console.log(LOG, 'resolveGroupInfo returned null — group/eventType not found or inactive');
+		return [];
+	}
 
 	const { hostUserId, allUserIds, eventConfig } = info;
+	console.log(LOG, 'Group info', {
+		hostUserId,
+		allUserIds,
+		durationMinutes: eventConfig.durationMinutes,
+		minimumNoticeHours: eventConfig.minimumNoticeHours,
+	});
 
 	// Host profile for timezone + booking window
 	const [hostProfile] = await db
@@ -647,6 +659,13 @@ export async function getGroupAvailableDatesForMonth(
 		.limit(1);
 
 	const timezone = hostProfile?.timezone ?? 'Europe/Warsaw';
+	console.log(LOG, 'Host profile', {
+		hasProfile: !!hostProfile,
+		timezone,
+		bookingWindowMode: hostProfile?.bookingWindowMode,
+		bookingWindowDays: hostProfile?.bookingWindowDays,
+		bookingWindowEndDate: hostProfile?.bookingWindowEndDate,
+	});
 
 	// Host weekly availability (work window)
 	const weeklySlots = await db
@@ -655,6 +674,8 @@ export async function getGroupAvailableDatesForMonth(
 		.where(
 			and(eq(availability.userId, hostUserId), eq(availability.isAvailable, true)),
 		);
+
+	console.log(LOG, 'Host weekly slots', weeklySlots.map((s) => `day${s.dayOfWeek}: ${s.startTime}-${s.endTime}`));
 
 	// Host overrides for this month
 	const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -672,6 +693,8 @@ export async function getGroupAvailableDatesForMonth(
 				lt(availabilityOverride.date, monthEnd),
 			),
 		);
+
+	console.log(LOG, 'Host overrides for month', overrides.length);
 
 	const overrideMap = groupBy(overrides, (o) => o.date);
 	const weeklySlotMap = groupBy(weeklySlots, (s) => s.dayOfWeek);
@@ -694,9 +717,16 @@ export async function getGroupAvailableDatesForMonth(
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
 
+	console.log(LOG, 'Booking window', {
+		now: now.toISOString(),
+		earliestBookable: earliestBookable.toISOString(),
+		maxBookableDate: maxBookableDate.toISOString(),
+	});
+
 	// Collect candidate dates from host's work windows
 	const daysInMonth = new Date(year, month, 0).getDate();
 	const candidates: { dateStr: string; windows: { dayStart: Date; dayEnd: Date }[] }[] = [];
+	const skippedDates: { dateStr: string; reason: string }[] = [];
 
 	for (let day = 1; day <= daysInMonth; day++) {
 		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -704,17 +734,33 @@ export async function getGroupAvailableDatesForMonth(
 
 		const endOfDay = new Date(dateObj);
 		endOfDay.setHours(23, 59, 59, 999);
-		if (endOfDay < earliestBookable) continue;
-		if (dateObj > maxBookableDate) continue;
+		if (endOfDay < earliestBookable) {
+			skippedDates.push({ dateStr, reason: 'before earliestBookable' });
+			continue;
+		}
+		if (dateObj > maxBookableDate) {
+			skippedDates.push({ dateStr, reason: 'after maxBookableDate' });
+			continue;
+		}
 
 		const dayOfWeek = dateObj.getDay();
 		const ranges = getWorkWindows(overrideMap, weeklySlotMap, dateStr, dayOfWeek);
-		if (!ranges) continue;
+		if (!ranges) {
+			skippedDates.push({ dateStr, reason: `no work windows for dayOfWeek=${dayOfWeek}` });
+			continue;
+		}
 
 		const windows = generateCandidatesForDay(dateStr, ranges, timezone);
 		if (windows.length > 0) {
 			candidates.push({ dateStr, windows });
+		} else {
+			skippedDates.push({ dateStr, reason: 'generateCandidatesForDay returned empty' });
 		}
+	}
+
+	console.log(LOG, 'Candidate dates', candidates.length, 'Skipped', skippedDates.length);
+	if (skippedDates.length > 0) {
+		console.log(LOG, 'Skipped dates (first 10):', skippedDates.slice(0, 10));
 	}
 
 	if (candidates.length === 0) return [];
@@ -723,10 +769,21 @@ export async function getGroupAvailableDatesForMonth(
 	const rangeMin = candidates[0]!.windows[0]!.dayStart;
 	const rangeMax = candidates[candidates.length - 1]!.windows[candidates[candidates.length - 1]!.windows.length - 1]!.dayEnd;
 
+	console.log(LOG, 'Fetching busy periods for all users', {
+		allUserIds,
+		rangeMin: rangeMin.toISOString(),
+		rangeMax: rangeMax.toISOString(),
+	});
+
 	const allBusyArrays = await Promise.all(
-		allUserIds.map((uid) => getUserBusyPeriods(db, uid, rangeMin, rangeMax)),
+		allUserIds.map(async (uid) => {
+			const busy = await getUserBusyPeriods(db, uid, rangeMin, rangeMax);
+			console.log(LOG, `User ${uid} busy periods:`, busy.length, busy.slice(0, 5).map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
+			return busy;
+		}),
 	);
 	const allBusy = allBusyArrays.flat();
+	console.log(LOG, 'Total busy periods (all members combined):', allBusy.length);
 
 	// Check each candidate for at least one free slot
 	const dates: string[] = [];
@@ -762,6 +819,7 @@ export async function getGroupAvailableDatesForMonth(
 		}
 	}
 
+	console.log(LOG, 'RESULT — available dates:', dates.length, dates.slice(0, 10));
 	return dates;
 }
 
@@ -774,10 +832,17 @@ export async function getGroupAvailableSlots(
 	groupEventTypeId: string,
 	dateString: string,
 ): Promise<{ start: string; end: string }[]> {
+	const LOG = '[GroupSlots]';
+	console.log(LOG, 'START', { groupEventTypeId, dateString });
+
 	const info = await resolveGroupInfo(db, groupEventTypeId);
-	if (!info) return [];
+	if (!info) {
+		console.log(LOG, 'resolveGroupInfo returned null');
+		return [];
+	}
 
 	const { hostUserId, allUserIds, eventConfig } = info;
+	console.log(LOG, 'Group info', { hostUserId, allUserIds, eventConfig });
 
 	// Host profile
 	const [hostProfile] = await db
@@ -791,6 +856,7 @@ export async function getGroupAvailableSlots(
 	// Determine work windows for this date from host's schedule
 	const dateObj = parseLocalDate(dateString, timezone);
 	const dayOfWeek = dateObj.getDay();
+	console.log(LOG, 'Date info', { dateString, dayOfWeek, timezone });
 
 	// Check overrides for this date (host)
 	const overridesForDate = await db
@@ -806,11 +872,18 @@ export async function getGroupAvailableSlots(
 	let workRanges: TimeRange[];
 
 	if (overridesForDate.length > 0) {
-		if (overridesForDate.some((o) => !o.isAvailable)) return [];
+		console.log(LOG, 'Override found for date', overridesForDate);
+		if (overridesForDate.some((o) => !o.isAvailable)) {
+			console.log(LOG, 'Override marks day as unavailable');
+			return [];
+		}
 		workRanges = overridesForDate
 			.filter((o) => o.startTime && o.endTime)
 			.map((o) => ({ startTime: o.startTime!, endTime: o.endTime! }));
-		if (workRanges.length === 0) return [];
+		if (workRanges.length === 0) {
+			console.log(LOG, 'Override has no time ranges');
+			return [];
+		}
 	} else {
 		const weeklySlots = await db
 			.select()
@@ -823,9 +896,15 @@ export async function getGroupAvailableSlots(
 				),
 			);
 
-		if (weeklySlots.length === 0) return [];
+		console.log(LOG, `Weekly slots for dayOfWeek=${dayOfWeek}:`, weeklySlots.map((s) => `${s.startTime}-${s.endTime}`));
+		if (weeklySlots.length === 0) {
+			console.log(LOG, 'No weekly slots for this day');
+			return [];
+		}
 		workRanges = weeklySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }));
 	}
+
+	console.log(LOG, 'Work ranges', workRanges);
 
 	// Generate slots from all work ranges
 	const duration = eventConfig.durationMinutes;
@@ -849,6 +928,8 @@ export async function getGroupAvailableSlots(
 		}
 	}
 
+	console.log(LOG, 'Generated raw slots:', slots.length);
+
 	// Filter by minimum notice + booking window
 	const now = new Date();
 	const minNoticeMs = eventConfig.minimumNoticeHours * 60 * 60 * 1000;
@@ -867,9 +948,16 @@ export async function getGroupAvailableSlots(
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
 
+	console.log(LOG, 'Filtering', {
+		now: now.toISOString(),
+		earliestBookable: earliestBookable.toISOString(),
+		maxBookableDate: maxBookableDate.toISOString(),
+	});
+
 	const filteredSlots = slots.filter(
 		(s) => s.start >= earliestBookable && s.start <= maxBookableDate,
 	);
+	console.log(LOG, 'After time filter:', filteredSlots.length, '(from', slots.length, ')');
 	if (filteredSlots.length === 0) return [];
 
 	// Get busy periods from ALL members
@@ -877,9 +965,14 @@ export async function getGroupAvailableSlots(
 	const timeMax = filteredSlots[filteredSlots.length - 1]!.end;
 
 	const allBusyArrays = await Promise.all(
-		allUserIds.map((uid) => getUserBusyPeriods(db, uid, timeMin, timeMax)),
+		allUserIds.map(async (uid) => {
+			const busy = await getUserBusyPeriods(db, uid, timeMin, timeMax);
+			console.log(LOG, `User ${uid} busy:`, busy.length, busy.map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
+			return busy;
+		}),
 	);
 	const allBusy = allBusyArrays.flat();
+	console.log(LOG, 'Total busy periods:', allBusy.length);
 
 	// Filter out slots that conflict with any member's busy time
 	const availableSlots = filteredSlots.filter((slot) => {
@@ -887,6 +980,8 @@ export async function getGroupAvailableSlots(
 			(busy) => slot.start < busy.end && slot.end > busy.start,
 		);
 	});
+
+	console.log(LOG, 'RESULT — available slots:', availableSlots.length, '(from', filteredSlots.length, 'filtered)');
 
 	return availableSlots.map((s) => ({
 		start: s.start.toISOString(),

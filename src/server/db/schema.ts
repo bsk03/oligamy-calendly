@@ -147,6 +147,7 @@ export const profile = createTable(
 		avatarUrl: d.text(),
 		timezone: d.text().notNull().default("Europe/Warsaw"),
 		isVisibleOnHome: d.boolean().notNull().default(true),
+		defaultLocale: d.text().notNull().default("en"), // "en" | "pl"
 		bookingWindowMode: d.text().notNull().default("relative"), // "relative" | "absolute"
 		bookingWindowDays: d.integer().notNull().default(30),
 		bookingWindowEndDate: d.date(), // only when mode = "absolute"

@@ -71,6 +71,13 @@
       "when": 1771501601713,
       "tag": "0009_youthful_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1771503676133,
+      "tag": "0010_lively_korath",
+      "breakpoints": true
     }
   ]
 }

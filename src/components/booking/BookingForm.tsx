@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v4";
@@ -20,16 +21,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "@/i18n/context";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
-const guestFormSchema = z.object({
-	guestName: z.string().min(1, "Name is required").max(200),
-	guestEmail: z.email("Invalid email address"),
-	guestNotes: z.string().max(1000).optional(),
-});
-
-type GuestFormValues = z.infer<typeof guestFormSchema>;
+type GuestFormValues = {
+	guestName: string;
+	guestEmail: string;
+	guestNotes?: string;
+};
 
 interface BookingFormProps {
 	host: {
@@ -74,14 +74,14 @@ function getInitials(name: string): string {
 		.slice(0, 2);
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string, intlLocale: string): string {
 	const [y, m, d] = dateStr.split("-").map(Number) as [
 		number,
 		number,
 		number,
 	];
 	const date = new Date(y, m - 1, d);
-	return new Intl.DateTimeFormat("en-US", {
+	return new Intl.DateTimeFormat(intlLocale, {
 		weekday: "long",
 		month: "long",
 		day: "numeric",
@@ -89,9 +89,9 @@ function formatDate(dateStr: string): string {
 	}).format(date);
 }
 
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, intlLocale: string): string {
 	const date = new Date(isoString);
-	return date.toLocaleTimeString("en-US", {
+	return date.toLocaleTimeString(intlLocale, {
 		hour: "2-digit",
 		minute: "2-digit",
 		hour12: false,
@@ -109,7 +109,18 @@ export function BookingForm({
 	groupEventTypeId,
 	groupData,
 }: BookingFormProps) {
+	const { t, intlLocale } = useTranslation();
 	const isGroupBooking = !!groupEventTypeId;
+
+	const guestFormSchema = useMemo(
+		() =>
+			z.object({
+				guestName: z.string().min(1, t.bookingForm.nameRequired).max(200),
+				guestEmail: z.email(t.bookingForm.invalidEmail),
+				guestNotes: z.string().max(1000).optional(),
+			}),
+		[t],
+	);
 
 	const {
 		register,
@@ -129,7 +140,7 @@ export function BookingForm({
 
 	const createBooking = api.booking.create.useMutation({
 		onSuccess: () => {
-			toast.success("Booking confirmed!");
+			toast.success(t.bookingForm.bookingConfirmedToast);
 		},
 		onError: (err) => {
 			toast.error(err.message);
@@ -172,29 +183,31 @@ export function BookingForm({
 						</div>
 						<div>
 							<h2 className="text-lg font-semibold">
-								Booking confirmed
+								{t.bookingForm.bookingConfirmed}
 							</h2>
 							<p className="mt-1 text-sm text-muted-foreground">
-								{isGroupBooking && groupData
-									? `Your meeting with ${groupData.name} has been scheduled.`
-									: `Your meeting with ${host.name} has been scheduled.`}
+								{t.bookingForm.meetingScheduled(
+									isGroupBooking && groupData
+										? groupData.name
+										: host.name,
+								)}
 							</p>
 						</div>
 						<div className="mt-2 rounded-lg border px-6 py-4 text-left text-sm">
 							<div className="flex items-center gap-2">
 								<Calendar className="size-4 text-muted-foreground" />
-								<span>{formatDate(date)}</span>
+								<span>{formatDate(date, intlLocale)}</span>
 							</div>
 							<div className="mt-1.5 flex items-center gap-2">
 								<Clock className="size-4 text-muted-foreground" />
 								<span>
-									{formatTime(slot.start)} –{" "}
-									{formatTime(slot.end)}
+									{formatTime(slot.start, intlLocale)} –{" "}
+									{formatTime(slot.end, intlLocale)}
 								</span>
 							</div>
 						</div>
 						<p className="text-xs text-muted-foreground">
-							A confirmation has been sent to {guestEmail}
+							{t.bookingForm.confirmationSent(guestEmail)}
 						</p>
 					</div>
 				</CardContent>
@@ -214,7 +227,7 @@ export function BookingForm({
 							className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
 						>
 							<ArrowLeft className="size-3.5" />
-							Back
+							{t.bookingForm.back}
 						</button>
 
 						<div className="flex flex-col gap-4">
@@ -248,7 +261,7 @@ export function BookingForm({
 											</AvatarFallback>
 										</Avatar>
 										<span className="text-xs text-muted-foreground">
-											Host: {host.name}
+											{t.bookingForm.host(host.name)}
 										</span>
 									</div>
 
@@ -319,18 +332,18 @@ export function BookingForm({
 							{/* Date */}
 							<div className="flex items-center gap-2 text-sm">
 								<Calendar className="size-3.5 shrink-0 text-muted-foreground" />
-								<span>{formatDate(date)}</span>
+								<span>{formatDate(date, intlLocale)}</span>
 							</div>
 
 							{/* Time */}
 							<div className="flex items-center gap-2 text-sm">
 								<Clock className="size-3.5 shrink-0 text-muted-foreground" />
 								<span>
-									{formatTime(slot.start)} –{" "}
-									{formatTime(slot.end)}
+									{formatTime(slot.start, intlLocale)} –{" "}
+									{formatTime(slot.end, intlLocale)}
 								</span>
 								<span className="text-muted-foreground">
-									({eventType.durationMinutes} min)
+									({t.bookingForm.min(eventType.durationMinutes)})
 								</span>
 							</div>
 						</div>
@@ -339,7 +352,7 @@ export function BookingForm({
 					{/* Right: Form */}
 					<div className="min-w-0 flex-1 border-t pt-5 md:border-t-0 md:pl-6 md:pt-0">
 						<h2 className="mb-4 text-base font-semibold">
-							Your details
+							{t.bookingForm.yourDetails}
 						</h2>
 
 						<form
@@ -349,11 +362,11 @@ export function BookingForm({
 							<div className="grid gap-2">
 								<Label htmlFor="guest-name">
 									<User className="mr-1 inline size-3.5" />
-									Your name
+									{t.bookingForm.yourName}
 								</Label>
 								<Input
 									id="guest-name"
-									placeholder="John Doe"
+									placeholder={t.bookingForm.namePlaceholder}
 									{...register("guestName")}
 								/>
 								{errors.guestName && (
@@ -365,12 +378,12 @@ export function BookingForm({
 
 							<div className="grid gap-2">
 								<Label htmlFor="guest-email">
-									Email address
+									{t.bookingForm.emailAddress}
 								</Label>
 								<Input
 									id="guest-email"
 									type="email"
-									placeholder="john@example.com"
+									placeholder={t.bookingForm.emailPlaceholder}
 									{...register("guestEmail")}
 								/>
 								{errors.guestEmail && (
@@ -382,11 +395,11 @@ export function BookingForm({
 
 							<div className="grid gap-2">
 								<Label htmlFor="guest-notes">
-									Additional notes
+									{t.bookingForm.additionalNotes}
 								</Label>
 								<Textarea
 									id="guest-notes"
-									placeholder="Anything the host should know..."
+									placeholder={t.bookingForm.notesPlaceholder}
 									rows={3}
 									{...register("guestNotes")}
 								/>
@@ -411,7 +424,7 @@ export function BookingForm({
 								{createBooking.isPending && (
 									<Loader2 className="size-4 animate-spin" />
 								)}
-								Confirm booking
+								{t.bookingForm.confirmBooking}
 							</Button>
 						</form>
 					</div>

@@ -15,6 +15,7 @@ export const userRouter = createTRPCRouter({
 				image: user.image,
 				bio: profile.bio,
 				avatarUrl: profile.avatarUrl,
+				defaultLocale: profile.defaultLocale,
 			})
 			.from(profile)
 			.innerJoin(user, eq(profile.userId, user.id))
@@ -69,6 +70,7 @@ export const userRouter = createTRPCRouter({
 					image: user.image,
 					bio: profile.bio,
 					avatarUrl: profile.avatarUrl,
+					defaultLocale: profile.defaultLocale,
 				})
 				.from(profile)
 				.innerJoin(user, eq(profile.userId, user.id))

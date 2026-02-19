@@ -439,6 +439,7 @@ export const groupRouter = createTRPCRouter({
 					image: user.image,
 					avatarUrl: profile.avatarUrl,
 					bio: profile.bio,
+					defaultLocale: profile.defaultLocale,
 				})
 				.from(user)
 				.leftJoin(profile, eq(user.id, profile.userId))
