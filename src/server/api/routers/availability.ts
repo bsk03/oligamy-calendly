@@ -1,8 +1,25 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { availability, availabilityOverride } from "@/server/db/schema";
+
+function timeToMinutes(t: string): number {
+	const [h, m] = t.split(":").map(Number) as [number, number];
+	return h * 60 + m;
+}
+
+function rangesOverlap(ranges: { startTime: string; endTime: string }[]): boolean {
+	if (ranges.length < 2) return false;
+	const sorted = ranges
+		.map((r) => ({ start: timeToMinutes(r.startTime), end: timeToMinutes(r.endTime) }))
+		.sort((a, b) => a.start - b.start);
+	for (let i = 1; i < sorted.length; i++) {
+		if (sorted[i]!.start < sorted[i - 1]!.end) return true;
+	}
+	return false;
+}
 
 const weeklySlotSchema = z.object({
 	dayOfWeek: z.number().int().min(0).max(6),
@@ -21,9 +38,26 @@ export const availabilityRouter = createTRPCRouter({
 	}),
 
 	setWeekly: protectedProcedure
-		.input(z.array(weeklySlotSchema).min(7).max(7))
+		.input(z.array(weeklySlotSchema).min(7))
 		.mutation(async ({ ctx, input }) => {
 			const userId = ctx.session.user.id;
+
+			// Validate no overlapping ranges per day
+			const byDay = new Map<number, { startTime: string; endTime: string }[]>();
+			for (const slot of input) {
+				if (!slot.isAvailable) continue;
+				const arr = byDay.get(slot.dayOfWeek) ?? [];
+				arr.push({ startTime: slot.startTime, endTime: slot.endTime });
+				byDay.set(slot.dayOfWeek, arr);
+			}
+			for (const [, ranges] of byDay) {
+				if (rangesOverlap(ranges)) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "Time ranges within the same day must not overlap.",
+					});
+				}
+			}
 
 			await ctx.db
 				.delete(availability)
@@ -48,60 +82,74 @@ export const availabilityRouter = createTRPCRouter({
 			.orderBy(availabilityOverride.date);
 	}),
 
-	createOverride: protectedProcedure
+	setOverride: protectedProcedure
 		.input(
 			z.object({
 				date: z.string(), // "YYYY-MM-DD"
 				isAvailable: z.boolean(),
-				startTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
-				endTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+				ranges: z.array(
+					z.object({
+						startTime: z.string().regex(/^\d{2}:\d{2}$/),
+						endTime: z.string().regex(/^\d{2}:\d{2}$/),
+					}),
+				),
 				reason: z.string().nullable(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			// Upsert by userId + date
-			const existing = await ctx.db
-				.select({ id: availabilityOverride.id })
-				.from(availabilityOverride)
+			const userId = ctx.session.user.id;
+
+			if (input.isAvailable && rangesOverlap(input.ranges)) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "Time ranges must not overlap.",
+				});
+			}
+
+			// Delete all existing overrides for this date
+			await ctx.db
+				.delete(availabilityOverride)
 				.where(
 					and(
-						eq(availabilityOverride.userId, ctx.session.user.id),
+						eq(availabilityOverride.userId, userId),
 						eq(availabilityOverride.date, input.date),
 					),
-				)
-				.limit(1);
+				);
 
-			if (existing.length > 0) {
-				await ctx.db
-					.update(availabilityOverride)
-					.set({
-						isAvailable: input.isAvailable,
-						startTime: input.startTime,
-						endTime: input.endTime,
-						reason: input.reason,
-					})
-					.where(eq(availabilityOverride.id, existing[0]!.id));
-			} else {
+			if (!input.isAvailable) {
+				// Insert single unavailable row
 				await ctx.db.insert(availabilityOverride).values({
-					userId: ctx.session.user.id,
+					userId,
 					date: input.date,
-					isAvailable: input.isAvailable,
-					startTime: input.startTime,
-					endTime: input.endTime,
+					isAvailable: false,
+					startTime: null,
+					endTime: null,
 					reason: input.reason,
 				});
+			} else {
+				// Insert one row per range
+				await ctx.db.insert(availabilityOverride).values(
+					input.ranges.map((range) => ({
+						userId,
+						date: input.date,
+						isAvailable: true,
+						startTime: range.startTime,
+						endTime: range.endTime,
+						reason: input.reason,
+					})),
+				);
 			}
 		}),
 
 	deleteOverride: protectedProcedure
-		.input(z.object({ id: z.string() }))
+		.input(z.object({ date: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			await ctx.db
 				.delete(availabilityOverride)
 				.where(
 					and(
-						eq(availabilityOverride.id, input.id),
 						eq(availabilityOverride.userId, ctx.session.user.id),
+						eq(availabilityOverride.date, input.date),
 					),
 				);
 		}),

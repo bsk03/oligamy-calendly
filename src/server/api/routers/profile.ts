@@ -10,6 +10,7 @@ import {
 	availability,
 	eventType,
 	googleCalendarToken,
+	group,
 	profile,
 	user,
 } from "@/server/db/schema";
@@ -87,6 +88,20 @@ export const profileRouter = createTRPCRouter({
 					throw new TRPCError({
 						code: "CONFLICT",
 						message: "This username is already taken.",
+					});
+				}
+
+				// Check username doesn't conflict with a group slug
+				const [groupConflict] = await ctx.db
+					.select({ id: group.id })
+					.from(group)
+					.where(eq(group.slug, input.username))
+					.limit(1);
+
+				if (groupConflict) {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This username conflicts with an existing group.",
 					});
 				}
 			}

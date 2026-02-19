@@ -49,7 +49,7 @@ export function BookingCalendar({
 	while (cells.length % 7 !== 0) cells.push(null);
 
 	return (
-		<div className="flex flex-col">
+		<div className="flex w-full flex-col md:w-auto">
 			{/* Month navigation */}
 			<div className="mb-5 flex items-center justify-between">
 				<h2 className="text-lg tracking-tight">
@@ -91,7 +91,7 @@ export function BookingCalendar({
 			<div className="grid grid-cols-7 gap-1">
 				{cells.map((day, idx) => {
 					if (day === null) {
-						return <div key={`empty-${idx}`} className="h-[52px] w-[52px]" />;
+						return <div key={`empty-${idx}`} className="aspect-square w-full md:h-[52px] md:w-[52px]" />;
 					}
 
 					const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -106,7 +106,7 @@ export function BookingCalendar({
 							disabled={!isAvailable || isLoading}
 							onClick={() => onDateSelect(dateStr)}
 							className={cn(
-								"relative flex h-[52px] w-[52px] flex-col items-center justify-center rounded-lg text-sm transition-all duration-150",
+								"relative flex aspect-square w-full flex-col items-center justify-center rounded-lg text-sm transition-all duration-150 md:h-[52px] md:w-[52px]",
 								isSelected &&
 									"bg-gray-900 font-semibold text-white shadow-sm",
 								!isSelected &&
@@ -121,7 +121,7 @@ export function BookingCalendar({
 							{isToday && (
 								<span
 									className={cn(
-										"absolute bottom-2 size-1 rounded-full",
+										"absolute bottom-1.5 size-1 rounded-full md:bottom-2",
 										isSelected ? "bg-white" : "bg-gray-900",
 									)}
 								/>

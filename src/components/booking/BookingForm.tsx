@@ -10,6 +10,7 @@ import {
 	Clock,
 	Loader2,
 	User,
+	Users,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -50,6 +51,18 @@ interface BookingFormProps {
 	date: string;
 	timezone: string;
 	onBack: () => void;
+	groupId?: string;
+	groupEventTypeId?: string;
+	groupData?: {
+		name: string;
+		description: string | null;
+		members: {
+			userId: string;
+			name: string;
+			image: string | null;
+			avatarUrl: string | null;
+		}[];
+	};
 }
 
 function getInitials(name: string): string {
@@ -92,7 +105,12 @@ export function BookingForm({
 	date,
 	timezone,
 	onBack,
+	groupId,
+	groupEventTypeId,
+	groupData,
 }: BookingFormProps) {
+	const isGroupBooking = !!groupEventTypeId;
+
 	const {
 		register,
 		handleSubmit,
@@ -109,12 +127,9 @@ export function BookingForm({
 
 	const guestEmail = watch("guestEmail");
 
-	const utils = api.useUtils();
-
 	const createBooking = api.booking.create.useMutation({
 		onSuccess: () => {
 			toast.success("Booking confirmed!");
-			void utils.slots.invalidate();
 		},
 		onError: (err) => {
 			toast.error(err.message);
@@ -122,16 +137,29 @@ export function BookingForm({
 	});
 
 	const onSubmit = (data: GuestFormValues) => {
-		createBooking.mutate({
-			hostId: host.userId,
-			eventTypeId: eventType.id,
-			startTime: slot.start,
-			endTime: slot.end,
-			timezone,
-			guestName: data.guestName,
-			guestEmail: data.guestEmail,
-			guestNotes: data.guestNotes || undefined,
-		});
+		if (isGroupBooking) {
+			createBooking.mutate({
+				groupId: groupId,
+				groupEventTypeId: groupEventTypeId,
+				startTime: slot.start,
+				endTime: slot.end,
+				timezone,
+				guestName: data.guestName,
+				guestEmail: data.guestEmail,
+				guestNotes: data.guestNotes || undefined,
+			});
+		} else {
+			createBooking.mutate({
+				hostId: host.userId,
+				eventTypeId: eventType.id,
+				startTime: slot.start,
+				endTime: slot.end,
+				timezone,
+				guestName: data.guestName,
+				guestEmail: data.guestEmail,
+				guestNotes: data.guestNotes || undefined,
+			});
+		}
 	};
 
 	if (createBooking.isSuccess) {
@@ -147,8 +175,9 @@ export function BookingForm({
 								Booking confirmed
 							</h2>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Your meeting with {host.name} has been
-								scheduled.
+								{isGroupBooking && groupData
+									? `Your meeting with ${groupData.name} has been scheduled.`
+									: `Your meeting with ${host.name} has been scheduled.`}
 							</p>
 						</div>
 						<div className="mt-2 rounded-lg border px-6 py-4 text-left text-sm">
@@ -181,10 +210,7 @@ export function BookingForm({
 					<div className="w-full shrink-0 pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
 						<button
 							type="button"
-							onClick={() => {
-								void utils.slots.invalidate();
-								onBack();
-							}}
+							onClick={onBack}
 							className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
 						>
 							<ArrowLeft className="size-3.5" />
@@ -192,32 +218,97 @@ export function BookingForm({
 						</button>
 
 						<div className="flex flex-col gap-4">
-							{/* Host */}
-							<div className="flex items-center gap-3">
-								<Avatar>
-									<AvatarImage
-										src={
-											host.avatarUrl ??
-											host.image ??
-											undefined
-										}
-										alt={host.name}
-									/>
-									<AvatarFallback>
-										{getInitials(host.name)}
-									</AvatarFallback>
-								</Avatar>
-								<div>
-									<p className="text-sm font-semibold leading-tight">
-										{host.name}
-									</p>
-									{host.bio && (
-										<p className="text-xs text-muted-foreground">
-											{host.bio}
-										</p>
+							{/* Group info */}
+							{isGroupBooking && groupData ? (
+								<>
+									<div className="flex items-center gap-2">
+										<div className="flex size-8 items-center justify-center rounded-lg bg-gray-100">
+											<Users className="size-4 text-gray-600" />
+										</div>
+										<div>
+											<p className="text-sm font-semibold leading-tight">
+												{groupData.name}
+											</p>
+										</div>
+									</div>
+
+									{/* Host */}
+									<div className="flex items-center gap-2">
+										<Avatar size="sm">
+											<AvatarImage
+												src={
+													host.avatarUrl ??
+													host.image ??
+													undefined
+												}
+												alt={host.name}
+											/>
+											<AvatarFallback>
+												{getInitials(host.name)}
+											</AvatarFallback>
+										</Avatar>
+										<span className="text-xs text-muted-foreground">
+											Host: {host.name}
+										</span>
+									</div>
+
+									{/* Members */}
+									{groupData.members.length > 0 && (
+										<div className="flex flex-wrap gap-1">
+											{groupData.members.map((m) => (
+												<div
+													key={m.userId}
+													className="flex items-center gap-1 rounded-full bg-gray-50 py-0.5 pr-2 pl-0.5"
+												>
+													<Avatar size="sm">
+														<AvatarImage
+															src={
+																m.avatarUrl ??
+																m.image ??
+																undefined
+															}
+															alt={m.name}
+														/>
+														<AvatarFallback className="text-[8px]">
+															{getInitials(m.name)}
+														</AvatarFallback>
+													</Avatar>
+													<span className="text-[10px] text-gray-500">
+														{m.name}
+													</span>
+												</div>
+											))}
+										</div>
 									)}
+								</>
+							) : (
+								/* Host (individual mode) */
+								<div className="flex items-center gap-3">
+									<Avatar>
+										<AvatarImage
+											src={
+												host.avatarUrl ??
+												host.image ??
+												undefined
+											}
+											alt={host.name}
+										/>
+										<AvatarFallback>
+											{getInitials(host.name)}
+										</AvatarFallback>
+									</Avatar>
+									<div>
+										<p className="text-sm font-semibold leading-tight">
+											{host.name}
+										</p>
+										{host.bio && (
+											<p className="text-xs text-muted-foreground">
+												{host.bio}
+											</p>
+										)}
+									</div>
 								</div>
-							</div>
+							)}
 
 							{/* Meeting type */}
 							<div className="flex items-center gap-2 text-sm text-muted-foreground">

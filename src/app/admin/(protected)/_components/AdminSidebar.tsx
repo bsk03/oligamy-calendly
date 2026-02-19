@@ -11,6 +11,7 @@ import {
 	LogOut,
 	Settings,
 	Users,
+	UsersRound,
 } from 'lucide-react';
 
 import { authClient } from '@/server/better-auth/client';
@@ -60,7 +61,8 @@ const settingsNav = [
 		icon: LinkIcon,
 		statusKey: 'hasGoogleCalendar' as const,
 	},
-	{ title: 'Team', href: '/admin/team', icon: Users, statusKey: null },
+	{ title: 'Team', href: '/admin/team', icon: Users, statusKey: null, adminOnly: false },
+	{ title: 'Groups', href: '/admin/groups', icon: UsersRound, statusKey: null, adminOnly: true },
 	{
 		title: 'Settings',
 		href: '/admin/settings',
@@ -79,8 +81,9 @@ function SetupDot() {
 	return <span className='size-2 rounded-full bg-red-500' />;
 }
 
-export function AdminSidebar({ email }: { email: string }) {
+export function AdminSidebar({ email, role }: { email: string; role: string }) {
 	const pathname = usePathname();
+	const isAdmin = role === 'admin';
 
 	const { data: status } = api.profile.setupStatus.useQuery(undefined, {
 		staleTime: 30_000,
@@ -104,9 +107,12 @@ export function AdminSidebar({ email }: { email: string }) {
 					href='/admin'
 					className='flex items-center gap-2 group-data-[collapsible=icon]:justify-center'
 				>
-					<div className='flex size-7 items-center justify-center rounded-md bg-foreground text-background text-xs font-bold'>
-						O
-					</div>
+					{/* eslint-disable-next-line @next/next/no-img-element */}
+					<img
+						src='/Subtract.svg'
+						alt='Oligamy'
+						className='size-7'
+					/>
 					<span className='text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden'>
 						Oligamy Cal
 					</span>
@@ -147,7 +153,7 @@ export function AdminSidebar({ email }: { email: string }) {
 					<SidebarGroupLabel>Settings</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
-							{settingsNav.map((item) => (
+							{settingsNav.filter((item) => !item.adminOnly || isAdmin).map((item) => (
 								<SidebarMenuItem key={item.href}>
 									<SidebarMenuButton
 										asChild

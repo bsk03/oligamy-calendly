@@ -2,6 +2,7 @@ import { availabilityRouter } from "@/server/api/routers/availability";
 import { bookingRouter } from "@/server/api/routers/booking";
 import { eventTypeRouter } from "@/server/api/routers/eventType";
 import { googleCalendarRouter } from "@/server/api/routers/googleCalendar";
+import { groupRouter } from "@/server/api/routers/group";
 import { invitationRouter } from "@/server/api/routers/invitation";
 import { postRouter } from "@/server/api/routers/post";
 import { profileRouter } from "@/server/api/routers/profile";
@@ -26,6 +27,7 @@ export const appRouter = createTRPCRouter({
 	user: userRouter,
 	slots: slotsRouter,
 	team: teamRouter,
+	group: groupRouter,
 });
 
 // export type definition of API

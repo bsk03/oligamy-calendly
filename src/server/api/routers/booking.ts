@@ -9,7 +9,11 @@ import {
 	BookingStatus,
 	CalendarResponseStatus,
 	booking,
+	bookingAttendee,
 	eventType,
+	group,
+	groupEventType,
+	groupMember,
 	user,
 } from "@/server/db/schema";
 import { getGoogleCalendarBusyPeriods } from "@/server/lib/availability";
@@ -50,10 +54,14 @@ export const bookingRouter = createTRPCRouter({
 					createdAt: booking.createdAt,
 					eventTypeTitle: eventType.title,
 					eventTypeDuration: eventType.durationMinutes,
+					groupEventTypeTitle: groupEventType.title,
+					groupEventTypeDuration: groupEventType.durationMinutes,
 					hostName: user.name,
+					groupId: booking.groupId,
 				})
 				.from(booking)
-				.innerJoin(eventType, eq(booking.eventTypeId, eventType.id))
+				.leftJoin(eventType, eq(booking.eventTypeId, eventType.id))
+				.leftJoin(groupEventType, eq(booking.groupEventTypeId, groupEventType.id))
 				.innerJoin(user, eq(booking.hostId, user.id))
 				.where(
 					isAdmin && !input?.hostId
@@ -62,7 +70,11 @@ export const bookingRouter = createTRPCRouter({
 				)
 				.orderBy(desc(booking.startTime));
 
-			return bookings;
+			return bookings.map((b) => ({
+				...b,
+				eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? "Unknown",
+				eventTypeDuration: b.eventTypeDuration ?? b.groupEventTypeDuration ?? 0,
+			}));
 		}),
 
 	/** List all hosts for admin filter dropdown */
@@ -102,7 +114,7 @@ export const bookingRouter = createTRPCRouter({
 					inArray(booking.status, [...ACTIVE_BOOKING_STATUSES]),
 				);
 
-		const upcoming = await ctx.db
+		const upcomingRaw = await ctx.db
 			.select({
 				id: booking.id,
 				hostId: booking.hostId,
@@ -113,14 +125,21 @@ export const bookingRouter = createTRPCRouter({
 				status: booking.status,
 				meetLink: booking.meetLink,
 				eventTypeTitle: eventType.title,
+				groupEventTypeTitle: groupEventType.title,
 				hostName: user.name,
 			})
 			.from(booking)
-			.innerJoin(eventType, eq(booking.eventTypeId, eventType.id))
+			.leftJoin(eventType, eq(booking.eventTypeId, eventType.id))
+			.leftJoin(groupEventType, eq(booking.groupEventTypeId, groupEventType.id))
 			.innerJoin(user, eq(booking.hostId, user.id))
 			.where(upcomingFilter)
 			.orderBy(booking.startTime)
 			.limit(5);
+
+		const upcoming = upcomingRaw.map((b) => ({
+			...b,
+			eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? "Unknown",
+		}));
 
 		// Counts
 		const allUpcoming = await ctx.db
@@ -195,8 +214,10 @@ export const bookingRouter = createTRPCRouter({
 	create: publicProcedure
 		.input(
 			z.object({
-				hostId: z.string(),
-				eventTypeId: z.string(),
+				hostId: z.string().optional(),
+				eventTypeId: z.string().optional(),
+				groupId: z.string().optional(),
+				groupEventTypeId: z.string().optional(),
 				startTime: z.string().datetime(),
 				endTime: z.string().datetime(),
 				timezone: z.string(),
@@ -206,33 +227,83 @@ export const bookingRouter = createTRPCRouter({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			// Verify event type belongs to host
-			const [et] = await ctx.db
-				.select()
-				.from(eventType)
-				.where(
-					and(
-						eq(eventType.id, input.eventTypeId),
-						eq(eventType.userId, input.hostId),
-						eq(eventType.isActive, true),
-					),
-				)
-				.limit(1);
-
-			if (!et) {
-				throw new Error("Invalid event type");
-			}
-
-			// Check for conflicting bookings (race condition guard)
 			const startTime = new Date(input.startTime);
 			const endTime = new Date(input.endTime);
 
+			let resolvedHostId: string;
+			let eventTitle: string;
+			let resolvedEventTypeId: string | null = null;
+			let resolvedGroupId: string | null = null;
+			let resolvedGroupEventTypeId: string | null = null;
+			let memberUserIds: string[] = [];
+
+			if (input.groupEventTypeId) {
+				// ── Group booking ──
+				const [get] = await ctx.db
+					.select()
+					.from(groupEventType)
+					.where(
+						and(
+							eq(groupEventType.id, input.groupEventTypeId),
+							eq(groupEventType.isActive, true),
+						),
+					)
+					.limit(1);
+
+				if (!get) throw new Error("Invalid group event type");
+
+				const [g] = await ctx.db
+					.select()
+					.from(group)
+					.where(and(eq(group.id, get.groupId), eq(group.isActive, true)))
+					.limit(1);
+
+				if (!g) throw new Error("Group not found or inactive");
+
+				resolvedHostId = g.hostUserId;
+				eventTitle = get.title;
+				resolvedGroupId = g.id;
+				resolvedGroupEventTypeId = get.id;
+
+				// Get all group members
+				const members = await ctx.db
+					.select({ userId: groupMember.userId })
+					.from(groupMember)
+					.where(eq(groupMember.groupId, g.id));
+
+				memberUserIds = members.map((m) => m.userId);
+			} else {
+				// ── Individual booking ──
+				if (!input.hostId || !input.eventTypeId) {
+					throw new Error("hostId and eventTypeId are required for individual bookings");
+				}
+
+				const [et] = await ctx.db
+					.select()
+					.from(eventType)
+					.where(
+						and(
+							eq(eventType.id, input.eventTypeId),
+							eq(eventType.userId, input.hostId),
+							eq(eventType.isActive, true),
+						),
+					)
+					.limit(1);
+
+				if (!et) throw new Error("Invalid event type");
+
+				resolvedHostId = input.hostId;
+				eventTitle = et.title;
+				resolvedEventTypeId = input.eventTypeId;
+			}
+
+			// Check for conflicting bookings for host
 			const conflicts = await ctx.db
 				.select({ id: booking.id })
 				.from(booking)
 				.where(
 					and(
-						eq(booking.hostId, input.hostId),
+						eq(booking.hostId, resolvedHostId),
 						inArray(booking.status, [...ACTIVE_BOOKING_STATUSES]),
 						lt(booking.startTime, endTime),
 						gte(booking.endTime, startTime),
@@ -246,10 +317,10 @@ export const bookingRouter = createTRPCRouter({
 				);
 			}
 
-			// Check Google Calendar for conflicts
+			// Check Google Calendar for conflicts (host)
 			const busyPeriods = await getGoogleCalendarBusyPeriods(
 				ctx.db,
-				input.hostId,
+				resolvedHostId,
 				startTime,
 				endTime,
 			);
@@ -268,8 +339,10 @@ export const bookingRouter = createTRPCRouter({
 			const [created] = await ctx.db
 				.insert(booking)
 				.values({
-					hostId: input.hostId,
-					eventTypeId: input.eventTypeId,
+					hostId: resolvedHostId,
+					eventTypeId: resolvedEventTypeId,
+					groupId: resolvedGroupId,
+					groupEventTypeId: resolvedGroupEventTypeId,
 					startTime,
 					endTime,
 					timezone: input.timezone,
@@ -282,15 +355,25 @@ export const bookingRouter = createTRPCRouter({
 
 			const bookingId = created!.id;
 
+			// Insert booking attendees for group bookings
+			if (memberUserIds.length > 0) {
+				await ctx.db.insert(bookingAttendee).values(
+					memberUserIds.map((userId) => ({
+						bookingId,
+						userId,
+					})),
+				);
+			}
+
 			// Create Google Calendar event + Meet (if host has calendar connected)
 			try {
-				const token = await getEventTargetToken(ctx.db, input.hostId);
+				const token = await getEventTargetToken(ctx.db, resolvedHostId);
 
 				if (token) {
 					const [host] = await ctx.db
 						.select({ email: user.email })
 						.from(user)
-						.where(eq(user.id, input.hostId))
+						.where(eq(user.id, resolvedHostId))
 						.limit(1);
 
 					if (host) {
@@ -298,17 +381,31 @@ export const bookingRouter = createTRPCRouter({
 							? `\n\nNotes from guest:\n${input.guestNotes}`
 							: "";
 
+						// Get additional attendee emails for group bookings
+						let additionalAttendees: { email: string; displayName?: string }[] = [];
+						if (memberUserIds.length > 0) {
+							const memberUsers = await ctx.db
+								.select({ id: user.id, email: user.email, name: user.name })
+								.from(user)
+								.where(inArray(user.id, memberUserIds));
+
+							additionalAttendees = memberUsers
+								.filter((m) => m.id !== resolvedHostId) // host is already added
+								.map((m) => ({ email: m.email, displayName: m.name }));
+						}
+
 						const eventOpts = {
 							accessToken: token.accessToken,
 							refreshToken: token.refreshToken,
 							calendarId: token.calendarId,
-							summary: `${et.title} — ${input.guestName}`,
+							summary: `${eventTitle} — ${input.guestName}`,
 							description: `Booking with ${input.guestName} (${input.guestEmail})${notesLine}`,
 							startTime,
 							endTime,
 							hostEmail: host.email,
 							guestEmail: input.guestEmail,
 							guestName: input.guestName,
+							additionalAttendees,
 						};
 
 						let result: Awaited<ReturnType<typeof createCalendarEvent>> = null;

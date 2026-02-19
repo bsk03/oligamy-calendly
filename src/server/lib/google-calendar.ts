@@ -70,6 +70,7 @@ export async function createCalendarEvent(opts: {
 	hostEmail: string;
 	guestEmail: string;
 	guestName: string;
+	additionalAttendees?: { email: string; displayName?: string }[];
 }): Promise<{ googleEventId: string; meetLink: string } | null> {
 	const oauth2 = getOAuth2Client();
 	oauth2.setCredentials({
@@ -78,6 +79,15 @@ export async function createCalendarEvent(opts: {
 	});
 
 	const calendar = google.calendar({ version: "v3", auth: oauth2 });
+
+	const attendees = [
+		{ email: opts.hostEmail, responseStatus: CalendarResponseStatus.NEEDS_ACTION },
+		{ email: opts.guestEmail, displayName: opts.guestName },
+		...(opts.additionalAttendees ?? []).map((a) => ({
+			email: a.email,
+			displayName: a.displayName,
+		})),
+	];
 
 	const event = await calendar.events.insert({
 		calendarId: opts.calendarId,
@@ -92,10 +102,7 @@ export async function createCalendarEvent(opts: {
 			end: {
 				dateTime: opts.endTime.toISOString(),
 			},
-			attendees: [
-				{ email: opts.hostEmail, responseStatus: CalendarResponseStatus.NEEDS_ACTION },
-				{ email: opts.guestEmail, displayName: opts.guestName },
-			],
+			attendees,
 			conferenceData: {
 				createRequest: {
 					requestId: crypto.randomUUID(),

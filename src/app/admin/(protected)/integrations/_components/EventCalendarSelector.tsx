@@ -12,7 +12,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
@@ -28,12 +27,6 @@ interface EventCalendarSelectorProps {
 }
 
 export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) {
-	// Fetch calendars for each account
-	const calendarQueries = accounts.map((account) =>
-		// eslint-disable-next-line react-hooks/rules-of-hooks
-		api.googleCalendar.listCalendars.useQuery({ tokenId: account.id }),
-	);
-
 	const utils = api.useUtils();
 
 	const updateEventMutation = api.googleCalendar.updateEventCalendar.useMutation({
@@ -45,20 +38,6 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 		onError: (err) => toast.error(err.message),
 	});
 
-	const isLoading = calendarQueries.some((q) => q.isLoading);
-
-	// Build grouped list of writable calendars across all accounts
-	const groups = useMemo(() => {
-		return accounts.map((account, i) => {
-			const data = calendarQueries[i]?.data;
-			const calendars = (data?.calendars ?? []).filter(
-				(c) => c.accessRole === "owner" || c.accessRole === "writer",
-			);
-			return { account, calendars };
-		}).filter((g) => g.calendars.length > 0);
-	}, [accounts, calendarQueries]);
-
-	// Compute current value: "tokenId:calendarId"
 	const currentValue = useMemo(() => {
 		const eventTarget = accounts.find((a) => a.isEventTarget);
 		if (!eventTarget) return "";
@@ -73,18 +52,7 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 		updateEventMutation.mutate({ tokenId, calendarId });
 	}
 
-	if (isLoading) {
-		return (
-			<div className="space-y-2">
-				<Skeleton className="h-4 w-32" />
-				<Skeleton className="h-9 w-64" />
-			</div>
-		);
-	}
-
-	if (groups.length === 0) {
-		return null;
-	}
+	if (accounts.length === 0) return null;
 
 	return (
 		<div className="space-y-2">
@@ -108,27 +76,59 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 					)}
 				</SelectTrigger>
 				<SelectContent>
-					{groups.map(({ account, calendars }) => (
-						<SelectGroup key={account.id}>
-							{accounts.length > 1 && (
-								<SelectLabel>{account.accountEmail}</SelectLabel>
-							)}
-							{calendars.map((cal) => (
-								<SelectItem
-									key={`${account.id}:${cal.id}`}
-									value={`${account.id}:${cal.id}`}
-								>
-									<span
-										className="inline-block size-2.5 rounded-full shrink-0"
-										style={{ backgroundColor: cal.backgroundColor }}
-									/>
-									{cal.summary}
-								</SelectItem>
-							))}
-						</SelectGroup>
+					{accounts.map((account) => (
+						<AccountCalendarGroup
+							key={account.id}
+							account={account}
+							showLabel={accounts.length > 1}
+						/>
 					))}
 				</SelectContent>
 			</Select>
 		</div>
+	);
+}
+
+function AccountCalendarGroup({
+	account,
+	showLabel,
+}: {
+	account: Account;
+	showLabel: boolean;
+}) {
+	const { data, isLoading } = api.googleCalendar.listCalendars.useQuery({
+		tokenId: account.id,
+	});
+
+	if (isLoading) {
+		return (
+			<SelectGroup>
+				<SelectLabel className="text-muted-foreground">Loading...</SelectLabel>
+			</SelectGroup>
+		);
+	}
+
+	const calendars = (data?.calendars ?? []).filter(
+		(c) => c.accessRole === "owner" || c.accessRole === "writer",
+	);
+
+	if (calendars.length === 0) return null;
+
+	return (
+		<SelectGroup>
+			{showLabel && <SelectLabel>{account.accountEmail}</SelectLabel>}
+			{calendars.map((cal) => (
+				<SelectItem
+					key={`${account.id}:${cal.id}`}
+					value={`${account.id}:${cal.id}`}
+				>
+					<span
+						className="inline-block size-2.5 rounded-full shrink-0"
+						style={{ backgroundColor: cal.backgroundColor }}
+					/>
+					{cal.summary}
+				</SelectItem>
+			))}
+		</SelectGroup>
 	);
 }

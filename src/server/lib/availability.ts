@@ -1,4 +1,4 @@
-import { and, eq, gte, lt, inArray } from 'drizzle-orm';
+import { and, eq, gte, lt, inArray, or } from 'drizzle-orm';
 import { google } from 'googleapis';
 
 import type { db as DbType } from '@/server/db';
@@ -7,13 +7,101 @@ import {
 	availability,
 	availabilityOverride,
 	booking,
+	bookingAttendee,
 	eventType,
+	group,
+	groupEventType,
+	groupMember,
 	profile,
 } from '@/server/db/schema';
 import { getOAuth2Client } from '@/server/lib/google-calendar';
 import { getAllUserTokens } from '@/server/lib/google-calendar-token';
 
 type Db = typeof DbType;
+
+type TimeRange = { startTime: string; endTime: string };
+
+type OverrideRow = {
+	date: string;
+	isAvailable: boolean;
+	startTime: string | null;
+	endTime: string | null;
+};
+
+type AvailSlot = {
+	dayOfWeek: number;
+	startTime: string;
+	endTime: string;
+	isAvailable: boolean;
+};
+
+/**
+ * Collects work windows for a specific day, checking overrides first then weekly schedule.
+ * Returns null if day is unavailable, or an array of {startTime, endTime} ranges.
+ */
+function getWorkWindows(
+	overrideMap: Map<string, OverrideRow[]>,
+	weeklySlotMap: Map<number, AvailSlot[]>,
+	dateStr: string,
+	dayOfWeek: number,
+): TimeRange[] | null {
+	const overrides = overrideMap.get(dateStr);
+	if (overrides && overrides.length > 0) {
+		// If any override is unavailable, the whole day is off
+		if (overrides.some((o) => !o.isAvailable)) return null;
+		const ranges: TimeRange[] = [];
+		for (const o of overrides) {
+			if (o.startTime && o.endTime) {
+				ranges.push({ startTime: o.startTime, endTime: o.endTime });
+			}
+		}
+		return ranges.length > 0 ? ranges : null;
+	}
+
+	const weeklySlots = weeklySlotMap.get(dayOfWeek);
+	if (!weeklySlots || weeklySlots.length === 0) return null;
+	return weeklySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }));
+}
+
+/**
+ * Groups an array by a key function into a Map of arrays.
+ */
+function groupBy<T, K>(arr: T[], keyFn: (item: T) => K): Map<K, T[]> {
+	const map = new Map<K, T[]>();
+	for (const item of arr) {
+		const key = keyFn(item);
+		const existing = map.get(key);
+		if (existing) {
+			existing.push(item);
+		} else {
+			map.set(key, [item]);
+		}
+	}
+	return map;
+}
+
+/**
+ * Generates time slot candidates for multiple work windows on a single day.
+ */
+function generateCandidatesForDay(
+	dateStr: string,
+	ranges: TimeRange[],
+	timezone: string,
+): { dayStart: Date; dayEnd: Date }[] {
+	const candidates: { dayStart: Date; dayEnd: Date }[] = [];
+	for (const range of ranges) {
+		const [sh, sm] = range.startTime.split(':').map(Number) as [number, number];
+		const [eh, em] = range.endTime.split(':').map(Number) as [number, number];
+
+		const dayStart = parseLocalDate(dateStr, timezone);
+		dayStart.setHours(sh, sm, 0, 0);
+		const dayEnd = parseLocalDate(dateStr, timezone);
+		dayEnd.setHours(eh, em, 0, 0);
+
+		candidates.push({ dayStart, dayEnd });
+	}
+	return candidates;
+}
 
 /**
  * Returns an array of date strings ("YYYY-MM-DD") that have at least one
@@ -72,8 +160,8 @@ export async function getAvailableDatesForMonth(
 			),
 		);
 
-	const overrideMap = new Map(overrides.map((o) => [o.date, o]));
-	const weeklySlotMap = new Map(weeklySlots.map((s) => [s.dayOfWeek, s]));
+	const overrideMap = groupBy(overrides, (o) => o.date);
+	const weeklySlotMap = groupBy(weeklySlots, (s) => s.dayOfWeek);
 
 	const now = new Date();
 	const duration = et.durationMinutes;
@@ -99,7 +187,7 @@ export async function getAvailableDatesForMonth(
 
 	// First pass: collect candidate dates with their work windows
 	const daysInMonth = new Date(year, month, 0).getDate();
-	const candidates: { dateStr: string; dayStart: Date; dayEnd: Date }[] = [];
+	const candidates: { dateStr: string; windows: { dayStart: Date; dayEnd: Date }[] }[] = [];
 
 	for (let day = 1; day <= daysInMonth; day++) {
 		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -110,39 +198,21 @@ export async function getAvailableDatesForMonth(
 		if (endOfDay < earliestBookable) continue;
 		if (dateObj > maxBookableDate) continue;
 
-		const override = overrideMap.get(dateStr);
-		let startTimeStr: string | null = null;
-		let endTimeStr: string | null = null;
+		const dayOfWeek = dateObj.getDay();
+		const ranges = getWorkWindows(overrideMap, weeklySlotMap, dateStr, dayOfWeek);
+		if (!ranges) continue;
 
-		if (override) {
-			if (!override.isAvailable || !override.startTime || !override.endTime)
-				continue;
-			startTimeStr = override.startTime;
-			endTimeStr = override.endTime;
-		} else {
-			const dayOfWeek = dateObj.getDay();
-			const ws = weeklySlotMap.get(dayOfWeek);
-			if (!ws) continue;
-			startTimeStr = ws.startTime;
-			endTimeStr = ws.endTime;
+		const windows = generateCandidatesForDay(dateStr, ranges, timezone);
+		if (windows.length > 0) {
+			candidates.push({ dateStr, windows });
 		}
-
-		const [sh, sm] = startTimeStr.split(':').map(Number) as [number, number];
-		const [eh, em] = endTimeStr.split(':').map(Number) as [number, number];
-
-		const dayStart = parseLocalDate(dateStr, timezone);
-		dayStart.setHours(sh, sm, 0, 0);
-		const dayEnd = parseLocalDate(dateStr, timezone);
-		dayEnd.setHours(eh, em, 0, 0);
-
-		candidates.push({ dateStr, dayStart, dayEnd });
 	}
 
 	if (candidates.length === 0) return [];
 
 	// Fetch busy periods for the entire month range in one call
-	const rangeMin = candidates[0]!.dayStart;
-	const rangeMax = candidates[candidates.length - 1]!.dayEnd;
+	const rangeMin = candidates[0]!.windows[0]!.dayStart;
+	const rangeMax = candidates[candidates.length - 1]!.windows[candidates[candidates.length - 1]!.windows.length - 1]!.dayEnd;
 
 	const [busyPeriods, existingBookings] = await Promise.all([
 		getGoogleCalendarBusyPeriods(db, userId, rangeMin, rangeMax),
@@ -167,25 +237,30 @@ export async function getAvailableDatesForMonth(
 	// Second pass: for each candidate, check if at least one slot is free
 	const dates: string[] = [];
 
-	for (const { dateStr, dayStart, dayEnd } of candidates) {
-		let cursor = new Date(dayStart);
+	for (const { dateStr, windows } of candidates) {
 		let hasAvailableSlot = false;
 
-		while (cursor.getTime() + duration * 60_000 <= dayEnd.getTime()) {
-			const slotStart = cursor;
-			const slotEnd = new Date(cursor.getTime() + duration * 60_000);
+		for (const { dayStart, dayEnd } of windows) {
+			let cursor = new Date(dayStart);
 
-			if (slotStart >= earliestBookable && slotStart <= maxBookableDate) {
-				const isBusy = allBusy.some(
-					(busy) => slotStart < busy.end && slotEnd > busy.start,
-				);
-				if (!isBusy) {
-					hasAvailableSlot = true;
-					break;
+			while (cursor.getTime() + duration * 60_000 <= dayEnd.getTime()) {
+				const slotStart = cursor;
+				const slotEnd = new Date(cursor.getTime() + duration * 60_000);
+
+				if (slotStart >= earliestBookable && slotStart <= maxBookableDate) {
+					const isBusy = allBusy.some(
+						(busy) => slotStart < busy.end && slotEnd > busy.start,
+					);
+					if (!isBusy) {
+						hasAvailableSlot = true;
+						break;
+					}
 				}
+
+				cursor = new Date(cursor.getTime() + duration * 60_000);
 			}
 
-			cursor = new Date(cursor.getTime() + duration * 60_000);
+			if (hasAvailableSlot) break;
 		}
 
 		if (hasAvailableSlot) {
@@ -224,8 +299,12 @@ export async function getAvailableSlots(
 
 	const timezone = userProfile?.timezone ?? 'Europe/Warsaw';
 
-	// 3. Check override for this date
-	const [override] = await db
+	// 3. Determine work windows for this date
+	const dateObj = parseLocalDate(dateString, timezone);
+	const dayOfWeek = dateObj.getDay();
+
+	// Check overrides for this date
+	const overridesForDate = await db
 		.select()
 		.from(availabilityOverride)
 		.where(
@@ -233,23 +312,20 @@ export async function getAvailableSlots(
 				eq(availabilityOverride.userId, userId),
 				eq(availabilityOverride.date, dateString),
 			),
-		)
-		.limit(1);
+		);
 
-	let startTime: string;
-	let endTime: string;
+	let workRanges: TimeRange[];
 
-	if (override) {
-		if (!override.isAvailable) return [];
-		if (!override.startTime || !override.endTime) return [];
-		startTime = override.startTime;
-		endTime = override.endTime;
+	if (overridesForDate.length > 0) {
+		// If any override is unavailable, no slots
+		if (overridesForDate.some((o) => !o.isAvailable)) return [];
+		workRanges = overridesForDate
+			.filter((o) => o.startTime && o.endTime)
+			.map((o) => ({ startTime: o.startTime!, endTime: o.endTime! }));
+		if (workRanges.length === 0) return [];
 	} else {
 		// 4. Check weekly availability for this day of week
-		const dateObj = parseLocalDate(dateString, timezone);
-		const dayOfWeek = dateObj.getDay();
-
-		const [weeklySlot] = await db
+		const weeklySlots = await db
 			.select()
 			.from(availability)
 			.where(
@@ -258,35 +334,32 @@ export async function getAvailableSlots(
 					eq(availability.dayOfWeek, dayOfWeek),
 					eq(availability.isAvailable, true),
 				),
-			)
-			.limit(1);
+			);
 
-		if (!weeklySlot) return [];
-		startTime = weeklySlot.startTime;
-		endTime = weeklySlot.endTime;
+		if (weeklySlots.length === 0) return [];
+		workRanges = weeklySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }));
 	}
 
-	// 5. Generate slots
+	// 5. Generate slots from all work ranges
 	const duration = et.durationMinutes;
 	const slots: { start: Date; end: Date }[] = [];
 
-	const [startHour, startMin] = startTime.split(':').map(Number) as [
-		number,
-		number,
-	];
-	const [endHour, endMin] = endTime.split(':').map(Number) as [number, number];
+	for (const range of workRanges) {
+		const [startHour, startMin] = range.startTime.split(':').map(Number) as [number, number];
+		const [endHour, endMin] = range.endTime.split(':').map(Number) as [number, number];
 
-	const dayStart = parseLocalDate(dateString, timezone);
-	dayStart.setHours(startHour, startMin, 0, 0);
+		const dayStart = parseLocalDate(dateString, timezone);
+		dayStart.setHours(startHour, startMin, 0, 0);
 
-	const dayEnd = parseLocalDate(dateString, timezone);
-	dayEnd.setHours(endHour, endMin, 0, 0);
+		const dayEnd = parseLocalDate(dateString, timezone);
+		dayEnd.setHours(endHour, endMin, 0, 0);
 
-	let cursor = new Date(dayStart);
-	while (cursor.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
-		const slotEnd = new Date(cursor.getTime() + duration * 60 * 1000);
-		slots.push({ start: new Date(cursor), end: slotEnd });
-		cursor = new Date(cursor.getTime() + duration * 60 * 1000);
+		let cursor = new Date(dayStart);
+		while (cursor.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
+			const slotEnd = new Date(cursor.getTime() + duration * 60 * 1000);
+			slots.push({ start: new Date(cursor), end: slotEnd });
+			cursor = new Date(cursor.getTime() + duration * 60 * 1000);
+		}
 	}
 
 	// 6. Filter slots before now + minimumNoticeHours and after booking window end
@@ -453,6 +526,372 @@ export async function getGoogleCalendarBusyPeriods(
 		console.error(logPrefix, 'Błąd FreeBusy:', { userId, err });
 		return [];
 	}
+}
+
+// ─── Group Availability ──────────────────────────────────────────
+
+/**
+ * Gets all busy periods for a single user (Google Calendar + existing bookings).
+ * Includes bookings where user is host AND bookings where user is an attendee.
+ */
+async function getUserBusyPeriods(
+	db: Db,
+	userId: string,
+	timeMin: Date,
+	timeMax: Date,
+): Promise<{ start: Date; end: Date }[]> {
+	const timeFilter = and(
+		inArray(booking.status, [...ACTIVE_BOOKING_STATUSES]),
+		gte(booking.endTime, timeMin),
+		lt(booking.startTime, timeMax),
+	);
+
+	const [gcalBusy, hostBookings, attendeeBookings] = await Promise.all([
+		getGoogleCalendarBusyPeriods(db, userId, timeMin, timeMax),
+		// Bookings where user is host
+		db
+			.select({ startTime: booking.startTime, endTime: booking.endTime })
+			.from(booking)
+			.where(and(eq(booking.hostId, userId), timeFilter)),
+		// Bookings where user is an attendee (group bookings)
+		db
+			.select({ startTime: booking.startTime, endTime: booking.endTime })
+			.from(bookingAttendee)
+			.innerJoin(booking, eq(bookingAttendee.bookingId, booking.id))
+			.where(and(eq(bookingAttendee.userId, userId), timeFilter)),
+	]);
+
+	// Deduplicate by combining all periods
+	const allBookings = [...hostBookings, ...attendeeBookings];
+	// Simple dedup by start+end time
+	const seen = new Set<string>();
+	const uniqueBookings = allBookings.filter((b) => {
+		const key = `${b.startTime.getTime()}-${b.endTime.getTime()}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+
+	return [
+		...gcalBusy,
+		...uniqueBookings.map((b) => ({ start: b.startTime, end: b.endTime })),
+	];
+}
+
+/**
+ * Resolves group info from a groupEventTypeId. Returns host, members, and event config.
+ */
+async function resolveGroupInfo(db: Db, groupEventTypeId: string) {
+	const [get] = await db
+		.select()
+		.from(groupEventType)
+		.where(
+			and(
+				eq(groupEventType.id, groupEventTypeId),
+				eq(groupEventType.isActive, true),
+			),
+		)
+		.limit(1);
+
+	if (!get) return null;
+
+	const [g] = await db
+		.select()
+		.from(group)
+		.where(and(eq(group.id, get.groupId), eq(group.isActive, true)))
+		.limit(1);
+
+	if (!g) return null;
+
+	const members = await db
+		.select({ userId: groupMember.userId })
+		.from(groupMember)
+		.where(eq(groupMember.groupId, g.id));
+
+	// All participant userIds: host + all members (deduplicated)
+	const allUserIds = [...new Set([g.hostUserId, ...members.map((m) => m.userId)])];
+
+	return {
+		group: g,
+		groupEventType: get,
+		hostUserId: g.hostUserId,
+		allUserIds,
+		eventConfig: {
+			durationMinutes: get.durationMinutes,
+			minimumNoticeHours: get.minimumNoticeHours,
+		},
+	};
+}
+
+/**
+ * Returns available dates for a group — intersection of all members' availability.
+ * Work window comes from the host's availability schedule.
+ * Busy periods are collected from ALL members.
+ */
+export async function getGroupAvailableDatesForMonth(
+	db: Db,
+	groupEventTypeId: string,
+	year: number,
+	month: number,
+): Promise<string[]> {
+	const info = await resolveGroupInfo(db, groupEventTypeId);
+	if (!info) return [];
+
+	const { hostUserId, allUserIds, eventConfig } = info;
+
+	// Host profile for timezone + booking window
+	const [hostProfile] = await db
+		.select()
+		.from(profile)
+		.where(eq(profile.userId, hostUserId))
+		.limit(1);
+
+	const timezone = hostProfile?.timezone ?? 'Europe/Warsaw';
+
+	// Host weekly availability (work window)
+	const weeklySlots = await db
+		.select()
+		.from(availability)
+		.where(
+			and(eq(availability.userId, hostUserId), eq(availability.isAvailable, true)),
+		);
+
+	// Host overrides for this month
+	const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+	const nextMonth = month === 12 ? 1 : month + 1;
+	const nextYear = month === 12 ? year + 1 : year;
+	const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+	const overrides = await db
+		.select()
+		.from(availabilityOverride)
+		.where(
+			and(
+				eq(availabilityOverride.userId, hostUserId),
+				gte(availabilityOverride.date, monthStart),
+				lt(availabilityOverride.date, monthEnd),
+			),
+		);
+
+	const overrideMap = groupBy(overrides, (o) => o.date);
+	const weeklySlotMap = groupBy(weeklySlots, (s) => s.dayOfWeek);
+
+	const now = new Date();
+	const duration = eventConfig.durationMinutes;
+	const minNoticeMs = eventConfig.minimumNoticeHours * 60 * 60 * 1000;
+	const earliestBookable = new Date(now.getTime() + minNoticeMs);
+
+	let maxBookableDate: Date;
+	if (
+		hostProfile?.bookingWindowMode === 'absolute' &&
+		hostProfile.bookingWindowEndDate
+	) {
+		maxBookableDate = parseLocalDate(hostProfile.bookingWindowEndDate, timezone);
+		maxBookableDate.setHours(23, 59, 59, 999);
+	} else {
+		const windowDays = hostProfile?.bookingWindowDays ?? 30;
+		maxBookableDate = new Date();
+		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
+	}
+
+	// Collect candidate dates from host's work windows
+	const daysInMonth = new Date(year, month, 0).getDate();
+	const candidates: { dateStr: string; windows: { dayStart: Date; dayEnd: Date }[] }[] = [];
+
+	for (let day = 1; day <= daysInMonth; day++) {
+		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+		const dateObj = parseLocalDate(dateStr, timezone);
+
+		const endOfDay = new Date(dateObj);
+		endOfDay.setHours(23, 59, 59, 999);
+		if (endOfDay < earliestBookable) continue;
+		if (dateObj > maxBookableDate) continue;
+
+		const dayOfWeek = dateObj.getDay();
+		const ranges = getWorkWindows(overrideMap, weeklySlotMap, dateStr, dayOfWeek);
+		if (!ranges) continue;
+
+		const windows = generateCandidatesForDay(dateStr, ranges, timezone);
+		if (windows.length > 0) {
+			candidates.push({ dateStr, windows });
+		}
+	}
+
+	if (candidates.length === 0) return [];
+
+	// Fetch busy periods for ALL members for the month range
+	const rangeMin = candidates[0]!.windows[0]!.dayStart;
+	const rangeMax = candidates[candidates.length - 1]!.windows[candidates[candidates.length - 1]!.windows.length - 1]!.dayEnd;
+
+	const allBusyArrays = await Promise.all(
+		allUserIds.map((uid) => getUserBusyPeriods(db, uid, rangeMin, rangeMax)),
+	);
+	const allBusy = allBusyArrays.flat();
+
+	// Check each candidate for at least one free slot
+	const dates: string[] = [];
+
+	for (const { dateStr, windows } of candidates) {
+		let hasAvailableSlot = false;
+
+		for (const { dayStart, dayEnd } of windows) {
+			let cursor = new Date(dayStart);
+
+			while (cursor.getTime() + duration * 60_000 <= dayEnd.getTime()) {
+				const slotStart = cursor;
+				const slotEnd = new Date(cursor.getTime() + duration * 60_000);
+
+				if (slotStart >= earliestBookable && slotStart <= maxBookableDate) {
+					const isBusy = allBusy.some(
+						(busy) => slotStart < busy.end && slotEnd > busy.start,
+					);
+					if (!isBusy) {
+						hasAvailableSlot = true;
+						break;
+					}
+				}
+
+				cursor = new Date(cursor.getTime() + duration * 60_000);
+			}
+
+			if (hasAvailableSlot) break;
+		}
+
+		if (hasAvailableSlot) {
+			dates.push(dateStr);
+		}
+	}
+
+	return dates;
+}
+
+/**
+ * Returns available time slots for a group on a specific date.
+ * Intersection of all members' free time.
+ */
+export async function getGroupAvailableSlots(
+	db: Db,
+	groupEventTypeId: string,
+	dateString: string,
+): Promise<{ start: string; end: string }[]> {
+	const info = await resolveGroupInfo(db, groupEventTypeId);
+	if (!info) return [];
+
+	const { hostUserId, allUserIds, eventConfig } = info;
+
+	// Host profile
+	const [hostProfile] = await db
+		.select()
+		.from(profile)
+		.where(eq(profile.userId, hostUserId))
+		.limit(1);
+
+	const timezone = hostProfile?.timezone ?? 'Europe/Warsaw';
+
+	// Determine work windows for this date from host's schedule
+	const dateObj = parseLocalDate(dateString, timezone);
+	const dayOfWeek = dateObj.getDay();
+
+	// Check overrides for this date (host)
+	const overridesForDate = await db
+		.select()
+		.from(availabilityOverride)
+		.where(
+			and(
+				eq(availabilityOverride.userId, hostUserId),
+				eq(availabilityOverride.date, dateString),
+			),
+		);
+
+	let workRanges: TimeRange[];
+
+	if (overridesForDate.length > 0) {
+		if (overridesForDate.some((o) => !o.isAvailable)) return [];
+		workRanges = overridesForDate
+			.filter((o) => o.startTime && o.endTime)
+			.map((o) => ({ startTime: o.startTime!, endTime: o.endTime! }));
+		if (workRanges.length === 0) return [];
+	} else {
+		const weeklySlots = await db
+			.select()
+			.from(availability)
+			.where(
+				and(
+					eq(availability.userId, hostUserId),
+					eq(availability.dayOfWeek, dayOfWeek),
+					eq(availability.isAvailable, true),
+				),
+			);
+
+		if (weeklySlots.length === 0) return [];
+		workRanges = weeklySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }));
+	}
+
+	// Generate slots from all work ranges
+	const duration = eventConfig.durationMinutes;
+	const slots: { start: Date; end: Date }[] = [];
+
+	for (const range of workRanges) {
+		const [startHour, startMin] = range.startTime.split(':').map(Number) as [number, number];
+		const [endHour, endMin] = range.endTime.split(':').map(Number) as [number, number];
+
+		const dayStart = parseLocalDate(dateString, timezone);
+		dayStart.setHours(startHour, startMin, 0, 0);
+
+		const dayEnd = parseLocalDate(dateString, timezone);
+		dayEnd.setHours(endHour, endMin, 0, 0);
+
+		let cursor = new Date(dayStart);
+		while (cursor.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
+			const slotEnd = new Date(cursor.getTime() + duration * 60 * 1000);
+			slots.push({ start: new Date(cursor), end: slotEnd });
+			cursor = new Date(cursor.getTime() + duration * 60 * 1000);
+		}
+	}
+
+	// Filter by minimum notice + booking window
+	const now = new Date();
+	const minNoticeMs = eventConfig.minimumNoticeHours * 60 * 60 * 1000;
+	const earliestBookable = new Date(now.getTime() + minNoticeMs);
+
+	let maxBookableDate: Date;
+	if (
+		hostProfile?.bookingWindowMode === 'absolute' &&
+		hostProfile.bookingWindowEndDate
+	) {
+		maxBookableDate = parseLocalDate(hostProfile.bookingWindowEndDate, timezone);
+		maxBookableDate.setHours(23, 59, 59, 999);
+	} else {
+		const windowDays = hostProfile?.bookingWindowDays ?? 30;
+		maxBookableDate = new Date();
+		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
+	}
+
+	const filteredSlots = slots.filter(
+		(s) => s.start >= earliestBookable && s.start <= maxBookableDate,
+	);
+	if (filteredSlots.length === 0) return [];
+
+	// Get busy periods from ALL members
+	const timeMin = filteredSlots[0]!.start;
+	const timeMax = filteredSlots[filteredSlots.length - 1]!.end;
+
+	const allBusyArrays = await Promise.all(
+		allUserIds.map((uid) => getUserBusyPeriods(db, uid, timeMin, timeMax)),
+	);
+	const allBusy = allBusyArrays.flat();
+
+	// Filter out slots that conflict with any member's busy time
+	const availableSlots = filteredSlots.filter((slot) => {
+		return !allBusy.some(
+			(busy) => slot.start < busy.end && slot.end > busy.start,
+		);
+	});
+
+	return availableSlots.map((s) => ({
+		start: s.start.toISOString(),
+		end: s.end.toISOString(),
+	}));
 }
 
 /**

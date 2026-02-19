@@ -22,7 +22,7 @@ export default async function AdminProtectedLayout({
 
 	return (
 		<SidebarProvider>
-			<AdminSidebar email={session?.user.email ?? ''} />
+			<AdminSidebar email={session?.user.email ?? ''} role={session?.user.role ?? 'user'} />
 			<SidebarInset>
 				<header className='flex h-14 items-center gap-2 border-b px-4'>
 					<SidebarTrigger className='-ml-1' />

@@ -57,6 +57,20 @@
       "when": 1771493524519,
       "tag": "0007_perfect_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771497373133,
+      "tag": "0008_lumpy_nomad",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1771501601713,
+      "tag": "0009_youthful_blob",
+      "breakpoints": true
     }
   ]
 }

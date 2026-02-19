@@ -32,24 +32,39 @@ export default async function Home() {
 	const host = headersList.get("host") ?? "";
 	const subdomain = getSubdomain(host, env.NEXT_PUBLIC_APP_URL);
 
+	let groupSlug: string | null = null;
+
 	if (subdomain) {
-		const person = await api.user.byUsername({ username: subdomain });
-		if (!person) {
-			redirect(env.NEXT_PUBLIC_APP_URL);
+		// First try group, then user
+		const groupData = await api.group.bySlug({ slug: subdomain });
+		if (groupData) {
+			groupSlug = subdomain;
+			void api.group.bySlug.prefetch({ slug: subdomain });
+		} else {
+			const person = await api.user.byUsername({ username: subdomain });
+			if (!person) {
+				redirect(env.NEXT_PUBLIC_APP_URL);
+			}
+			void api.user.byUsername.prefetch({ username: subdomain });
 		}
-		void api.user.byUsername.prefetch({ username: subdomain });
 	} else {
 		void api.user.list.prefetch();
 	}
 
 	return (
 		<HydrateClient>
-			<main className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-				<div className="flex flex-col items-center gap-6">
-					{!subdomain && (
-						<h1 className="text-2xl font-bold">Umów spotkanie</h1>
-					)}
-					<BookingCard username={subdomain} />
+			<main className="flex min-h-svh flex-col items-center justify-center bg-background px-3 py-6 md:p-4">
+				<div className="flex w-full max-w-5xl flex-col items-center gap-6">
+					{/* eslint-disable-next-line @next/next/no-img-element */}
+					<img
+						src="/logo.svg"
+						alt="Oligamy Software"
+						className="h-8 w-auto"
+					/>
+					<BookingCard
+						username={groupSlug ? null : subdomain}
+						groupSlug={groupSlug}
+					/>
 				</div>
 			</main>
 		</HydrateClient>

@@ -4,6 +4,8 @@ import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import {
 	getAvailableDatesForMonth,
 	getAvailableSlots,
+	getGroupAvailableDatesForMonth,
+	getGroupAvailableSlots,
 } from "@/server/lib/availability";
 
 export const slotsRouter = createTRPCRouter({
@@ -39,6 +41,38 @@ export const slotsRouter = createTRPCRouter({
 				ctx.db,
 				input.userId,
 				input.eventTypeId,
+				input.date,
+			);
+		}),
+
+	getAvailableDatesForGroup: publicProcedure
+		.input(
+			z.object({
+				groupEventTypeId: z.string(),
+				year: z.number().int().min(2024).max(2030),
+				month: z.number().int().min(1).max(12),
+			}),
+		)
+		.query(async ({ ctx, input }) => {
+			return getGroupAvailableDatesForMonth(
+				ctx.db,
+				input.groupEventTypeId,
+				input.year,
+				input.month,
+			);
+		}),
+
+	getAvailableSlotsForGroup: publicProcedure
+		.input(
+			z.object({
+				groupEventTypeId: z.string(),
+				date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+			}),
+		)
+		.query(async ({ ctx, input }) => {
+			return getGroupAvailableSlots(
+				ctx.db,
+				input.groupEventTypeId,
 				input.date,
 			);
 		}),

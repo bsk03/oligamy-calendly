@@ -126,7 +126,7 @@ export function TimeSlotList({
 									type="button"
 									onClick={() => onSlotSelect(slot)}
 									className={cn(
-										"flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-[13px] transition-all duration-150",
+										"flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-[13px] transition-all duration-150",
 										isSelected
 											? "border-gray-900 bg-gray-900 font-semibold text-white shadow-sm"
 											: "border-gray-200 hover:bg-gray-50",

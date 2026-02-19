@@ -16,9 +16,10 @@ type Step = "select" | "form";
 
 interface BookingCardProps {
 	username?: string | null;
+	groupSlug?: string | null;
 }
 
-export function BookingCard({ username }: BookingCardProps) {
+export function BookingCard({ username, groupSlug }: BookingCardProps) {
 	const [step, setStep] = useState<Step>("select");
 	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [selectedDuration, setSelectedDuration] = useState<number | null>(
@@ -32,35 +33,51 @@ export function BookingCard({ username }: BookingCardProps) {
 	const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("24h");
 	const [timezone, setTimezone] = useState("Europe/Warsaw");
 
-	// Single-person mode: fetch by username
+	const isGroupMode = !!groupSlug;
+
+	// ── Group mode data ──
+	const { data: groupData, isLoading: isGroupLoading } =
+		api.group.bySlug.useQuery(
+			{ slug: groupSlug! },
+			{ enabled: isGroupMode },
+		);
+
+	// Derive group event type from selected duration
+	const groupEventType =
+		groupData?.eventTypes.find(
+			(et) => et.durationMinutes === selectedDuration,
+		) ?? null;
+	const groupEventTypeId = groupEventType?.id ?? null;
+
+	// ── Single-person mode ──
 	const { data: singlePerson, isLoading: isSinglePersonLoading } =
 		api.user.byUsername.useQuery(
 			{ username: username! },
-			{ enabled: !!username },
+			{ enabled: !!username && !isGroupMode },
 		);
 
-	// Team mode: fetch all
+	// ── Team mode ──
 	const { data: allPeople = [] } = api.user.list.useQuery(undefined, {
-		enabled: !username,
+		enabled: !username && !isGroupMode,
 	});
 
-	// Unified people list
+	// Unified people list (non-group mode)
 	const people = username
 		? singlePerson
 			? [singlePerson]
 			: []
 		: allPeople;
 
-	const isLocked = !!username;
+	const isLocked = !!username || isGroupMode;
 
 	// Auto-select single person
 	useEffect(() => {
-		if (isLocked && singlePerson && selectedUserId !== singlePerson.userId) {
+		if (!isGroupMode && isLocked && singlePerson && selectedUserId !== singlePerson.userId) {
 			setSelectedUserId(singlePerson.userId);
 		}
-	}, [isLocked, singlePerson, selectedUserId]);
+	}, [isGroupMode, isLocked, singlePerson, selectedUserId]);
 
-	// Derive selected event type from person + duration
+	// Derive selected event type from person + duration (non-group mode)
 	const selectedPerson = people.find((p) => p.userId === selectedUserId);
 	const selectedEventType =
 		selectedPerson?.eventTypes.find(
@@ -68,64 +85,93 @@ export function BookingCard({ username }: BookingCardProps) {
 		) ?? null;
 	const selectedEventTypeId = selectedEventType?.id ?? null;
 
-	// Fetch available dates for the displayed month
-	const { data: availableDates = [], isLoading: isDatesLoading } =
-		api.slots.getAvailableDates.useQuery(
-			{
-				userId: selectedUserId!,
-				eventTypeId: selectedEventTypeId!,
-				year: currentMonth.getFullYear(),
-				month: currentMonth.getMonth() + 1,
-			},
-			{
-				enabled: !!selectedUserId && !!selectedEventTypeId,
-			},
-		);
+	// ── Available dates ──
+	const { data: availableDates = [], isLoading: isDatesLoading } = isGroupMode
+		? // eslint-disable-next-line react-hooks/rules-of-hooks
+			api.slots.getAvailableDatesForGroup.useQuery(
+				{
+					groupEventTypeId: groupEventTypeId!,
+					year: currentMonth.getFullYear(),
+					month: currentMonth.getMonth() + 1,
+				},
+				{ enabled: !!groupEventTypeId },
+			)
+		: // eslint-disable-next-line react-hooks/rules-of-hooks
+			api.slots.getAvailableDates.useQuery(
+				{
+					userId: selectedUserId!,
+					eventTypeId: selectedEventTypeId!,
+					year: currentMonth.getFullYear(),
+					month: currentMonth.getMonth() + 1,
+				},
+				{ enabled: !!selectedUserId && !!selectedEventTypeId },
+			);
 
-	// Prefetch next month so navigation is instant
+	// Prefetch next month
 	const nextMonth = useMemo(
 		() => new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1),
 		[currentMonth],
 	);
-	api.slots.getAvailableDates.useQuery(
-		{
-			userId: selectedUserId!,
-			eventTypeId: selectedEventTypeId!,
-			year: nextMonth.getFullYear(),
-			month: nextMonth.getMonth() + 1,
-		},
-		{
-			enabled: !!selectedUserId && !!selectedEventTypeId,
-		},
-	);
 
-	// Fetch available slots for the selected date
-	const { data: slots = [], isLoading: isSlotsLoading } =
-		api.slots.getAvailableSlots.useQuery(
+	if (isGroupMode) {
+		// eslint-disable-next-line react-hooks/rules-of-hooks
+		api.slots.getAvailableDatesForGroup.useQuery(
+			{
+				groupEventTypeId: groupEventTypeId!,
+				year: nextMonth.getFullYear(),
+				month: nextMonth.getMonth() + 1,
+			},
+			{ enabled: !!groupEventTypeId },
+		);
+	} else {
+		// eslint-disable-next-line react-hooks/rules-of-hooks
+		api.slots.getAvailableDates.useQuery(
 			{
 				userId: selectedUserId!,
 				eventTypeId: selectedEventTypeId!,
-				date: selectedDate!,
+				year: nextMonth.getFullYear(),
+				month: nextMonth.getMonth() + 1,
 			},
-			{
-				enabled:
-					!!selectedUserId && !!selectedEventTypeId && !!selectedDate,
-			},
+			{ enabled: !!selectedUserId && !!selectedEventTypeId },
 		);
+	}
+
+	// ── Available slots for selected date ──
+	const { data: slots = [], isLoading: isSlotsLoading } = isGroupMode
+		? // eslint-disable-next-line react-hooks/rules-of-hooks
+			api.slots.getAvailableSlotsForGroup.useQuery(
+				{
+					groupEventTypeId: groupEventTypeId!,
+					date: selectedDate!,
+				},
+				{ enabled: !!groupEventTypeId && !!selectedDate },
+			)
+		: // eslint-disable-next-line react-hooks/rules-of-hooks
+			api.slots.getAvailableSlots.useQuery(
+				{
+					userId: selectedUserId!,
+					eventTypeId: selectedEventTypeId!,
+					date: selectedDate!,
+				},
+				{
+					enabled:
+						!!selectedUserId && !!selectedEventTypeId && !!selectedDate,
+				},
+			);
 
 	const availableDatesSet = useMemo(
 		() => new Set(availableDates),
 		[availableDates],
 	);
 
-	// Find the full slot object for the selected slot
 	const selectedSlotObj = slots.find((s) => s.start === selectedSlot) ?? null;
 
-	const canProceed =
-		!!selectedPerson &&
-		!!selectedEventType &&
-		!!selectedDate &&
-		!!selectedSlotObj;
+	const canProceed = isGroupMode
+		? !!groupEventType && !!selectedDate && !!selectedSlotObj
+		: !!selectedPerson &&
+			!!selectedEventType &&
+			!!selectedDate &&
+			!!selectedSlotObj;
 
 	const handleUserChange = (userId: string) => {
 		if (isLocked) return;
@@ -160,13 +206,12 @@ export function BookingCard({ username }: BookingCardProps) {
 		setStep("select");
 	};
 
-	// Loading state for subdomain mode
-	if (username && isSinglePersonLoading) {
+	// Loading state
+	if ((username && !isGroupMode && isSinglePersonLoading) || (isGroupMode && isGroupLoading)) {
 		return (
 			<Card className="w-full max-w-5xl">
 				<CardContent>
-					<div className="flex h-[480px] flex-col md:flex-row">
-						{/* Left skeleton */}
+					<div className="flex flex-col md:h-[480px] md:flex-row">
 						<div className="w-full shrink-0 space-y-5 pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
 							<div className="flex items-center gap-3">
 								<div className="size-10 shrink-0 animate-pulse rounded-full bg-muted" />
@@ -183,12 +228,10 @@ export function BookingCard({ username }: BookingCardProps) {
 								</div>
 							</div>
 						</div>
-						{/* Middle skeleton */}
 						<div className="shrink-0 border-t py-5 md:border-t-0 md:px-6 md:py-0">
-							<div className="h-[300px] w-[280px] animate-pulse rounded-lg bg-muted" />
+							<div className="aspect-square w-full max-w-[280px] animate-pulse rounded-lg bg-muted md:h-[300px] md:w-[280px]" />
 						</div>
-						{/* Right skeleton */}
-						<div className="flex w-full flex-col border-t pt-5 md:w-[200px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
+						<div className="flex w-full flex-col border-t pt-5 md:min-w-[180px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
 							<div className="space-y-2">
 								{Array.from({ length: 5 }).map((_, i) => (
 									<div
@@ -205,43 +248,108 @@ export function BookingCard({ username }: BookingCardProps) {
 	}
 
 	// Step 2: Booking form
-	if (
-		step === "form" &&
-		selectedPerson &&
-		selectedEventType &&
-		selectedDate &&
-		selectedSlotObj
-	) {
-		return (
-			<BookingForm
-				host={selectedPerson}
-				eventType={selectedEventType}
-				slot={selectedSlotObj}
-				date={selectedDate}
-				timezone={timezone}
-				onBack={handleBack}
-			/>
-		);
+	if (step === "form" && selectedDate && selectedSlotObj) {
+		if (isGroupMode && groupData && groupEventType) {
+			return (
+				<BookingForm
+					host={{
+						userId: groupData.host?.id ?? "",
+						name: groupData.host?.name ?? "",
+						image: groupData.host?.image ?? null,
+						avatarUrl: groupData.host?.avatarUrl ?? null,
+						bio: groupData.host?.bio ?? null,
+					}}
+					eventType={{
+						id: groupEventType.id,
+						title: groupEventType.title,
+						durationMinutes: groupEventType.durationMinutes,
+					}}
+					slot={selectedSlotObj}
+					date={selectedDate}
+					timezone={timezone}
+					onBack={handleBack}
+					groupId={groupData.id}
+					groupEventTypeId={groupEventType.id}
+					groupData={{
+						name: groupData.name,
+						description: groupData.description,
+						members: groupData.members,
+					}}
+				/>
+			);
+		}
+
+		if (selectedPerson && selectedEventType) {
+			return (
+				<BookingForm
+					host={selectedPerson}
+					eventType={selectedEventType}
+					slot={selectedSlotObj}
+					date={selectedDate}
+					timezone={timezone}
+					onBack={handleBack}
+				/>
+			);
+		}
 	}
+
+	// Compute durations for group mode
+	const groupDurations = groupData
+		? [...new Set(groupData.eventTypes.map((et) => et.durationMinutes))].sort(
+				(a, b) => a - b,
+			)
+		: [];
 
 	// Step 1: Date & time picker
 	return (
 		<Card className="w-full max-w-5xl">
 			<CardContent>
-				<div className="flex h-[480px] flex-col md:flex-row">
-					{/* Left: Person, Info, Duration, Timezone */}
+				<div className="flex flex-col md:h-[480px] md:flex-row">
+					{/* Left: Person/Group, Info, Duration, Timezone */}
 					<div className="w-full shrink-0 overflow-y-auto pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
-						<PersonEventSelector
-							people={people}
-							selectedUserId={selectedUserId}
-							selectedDuration={selectedDuration}
-							selectedEventType={selectedEventType}
-							onUserChange={handleUserChange}
-							onDurationChange={handleDurationChange}
-							timezone={timezone}
-							onTimezoneChange={setTimezone}
-							locked={isLocked}
-						/>
+						{isGroupMode && groupData ? (
+							<PersonEventSelector
+								people={[]}
+								selectedUserId={null}
+								selectedDuration={selectedDuration}
+								selectedEventType={
+									groupEventType
+										? {
+												id: groupEventType.id,
+												title: groupEventType.title,
+												slug: groupEventType.slug,
+												durationMinutes: groupEventType.durationMinutes,
+												description: groupEventType.description,
+												color: groupEventType.color,
+											}
+										: null
+								}
+								onUserChange={handleUserChange}
+								onDurationChange={handleDurationChange}
+								timezone={timezone}
+								onTimezoneChange={setTimezone}
+								locked
+								groupData={{
+									name: groupData.name,
+									description: groupData.description,
+									host: groupData.host,
+									members: groupData.members,
+									durations: groupDurations,
+								}}
+							/>
+						) : (
+							<PersonEventSelector
+								people={people}
+								selectedUserId={selectedUserId}
+								selectedDuration={selectedDuration}
+								selectedEventType={selectedEventType}
+								onUserChange={handleUserChange}
+								onDurationChange={handleDurationChange}
+								timezone={timezone}
+								onTimezoneChange={setTimezone}
+								locked={isLocked}
+							/>
+						)}
 					</div>
 
 					{/* Middle: Calendar */}
@@ -257,9 +365,9 @@ export function BookingCard({ username }: BookingCardProps) {
 					</div>
 
 					{/* Right: Time Slots + Continue */}
-					<div className="flex w-full shrink-0 flex-col overflow-hidden border-t pt-5 md:w-[200px] md:min-h-0 md:border-t-0 md:border-l md:pl-6 md:pt-0">
+					<div className="flex w-full flex-col overflow-hidden border-t pt-5 md:min-h-0 md:min-w-[180px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
 						{selectedDate ? (
-							<>
+							<div className="flex max-h-[300px] flex-col md:max-h-none md:flex-1">
 								<TimeSlotList
 									slots={slots}
 									selectedSlot={selectedSlot}
@@ -280,9 +388,9 @@ export function BookingCard({ username }: BookingCardProps) {
 										<ArrowRight className="size-4" />
 									</Button>
 								)}
-							</>
+							</div>
 						) : (
-							<div className="flex h-full items-center justify-center">
+							<div className="flex h-full items-center justify-center py-6 md:py-0">
 								<p className="text-center text-[13px] text-muted-foreground">
 									Select a date to see
 									<br />

@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe } from "lucide-react";
+import { Globe, Users } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GoogleMeetIcon } from "@/components/icons";
@@ -40,6 +40,25 @@ interface Person {
 	eventTypes: EventType[];
 }
 
+interface GroupDataProp {
+	name: string;
+	description: string | null;
+	host: {
+		id: string;
+		name: string;
+		image: string | null;
+		avatarUrl: string | null;
+		bio?: string | null;
+	} | null;
+	members: {
+		userId: string;
+		name: string;
+		image: string | null;
+		avatarUrl: string | null;
+	}[];
+	durations: number[];
+}
+
 interface PersonEventSelectorProps {
 	people: Person[];
 	selectedUserId: string | null;
@@ -50,6 +69,7 @@ interface PersonEventSelectorProps {
 	timezone: string;
 	onTimezoneChange: (tz: string) => void;
 	locked?: boolean;
+	groupData?: GroupDataProp;
 }
 
 function getInitials(name: string): string {
@@ -71,9 +91,148 @@ export function PersonEventSelector({
 	timezone,
 	onTimezoneChange,
 	locked = false,
+	groupData,
 }: PersonEventSelectorProps) {
 	const selectedPerson = people.find((p) => p.userId === selectedUserId);
 
+	// Group mode
+	if (groupData) {
+		return (
+			<div className="flex h-full flex-col gap-5">
+				{/* Group name & description */}
+				<div>
+					<div className="flex items-center gap-2">
+						<div className="flex size-8 items-center justify-center rounded-lg bg-gray-100">
+							<Users className="size-4 text-gray-600" />
+						</div>
+						<h3 className="text-[15px] font-semibold leading-tight">
+							{groupData.name}
+						</h3>
+					</div>
+					{groupData.description && (
+						<p className="mt-1.5 text-[13px] text-muted-foreground line-clamp-2">
+							{groupData.description}
+						</p>
+					)}
+				</div>
+
+				{/* Host */}
+				{groupData.host && (
+					<div>
+						<p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+							Host
+						</p>
+						<div className="flex items-center gap-2">
+							<Avatar size="sm">
+								<AvatarImage
+									src={
+										groupData.host.avatarUrl ??
+										groupData.host.image ??
+										undefined
+									}
+									alt={groupData.host.name}
+								/>
+								<AvatarFallback>
+									{getInitials(groupData.host.name)}
+								</AvatarFallback>
+							</Avatar>
+							<span className="text-[13px] font-medium">
+								{groupData.host.name}
+							</span>
+						</div>
+					</div>
+				)}
+
+				{/* Members */}
+				{groupData.members.length > 0 && (
+					<div>
+						<p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+							Members
+						</p>
+						<div className="flex flex-wrap gap-1.5">
+							{groupData.members.map((member) => (
+								<div
+									key={member.userId}
+									className="flex items-center gap-1.5 rounded-full bg-gray-50 py-0.5 pr-2.5 pl-0.5"
+								>
+									<Avatar size="sm">
+										<AvatarImage
+											src={
+												member.avatarUrl ??
+												member.image ??
+												undefined
+											}
+											alt={member.name}
+										/>
+										<AvatarFallback>
+											{getInitials(member.name)}
+										</AvatarFallback>
+									</Avatar>
+									<span className="text-[11px] font-medium text-gray-600">
+										{member.name}
+									</span>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* Event type info */}
+				{selectedEventType && (
+					<div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+						<GoogleMeetIcon className="size-3.5 shrink-0" />
+						<span>{selectedEventType.title}</span>
+					</div>
+				)}
+
+				{/* Duration Selector */}
+				{groupData.durations.length > 0 && (
+					<div>
+						<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+							Duration
+						</p>
+						<div className="flex flex-wrap gap-1.5">
+							{groupData.durations.map((d) => (
+								<button
+									key={d}
+									type="button"
+									onClick={() => onDurationChange(d)}
+									className={cn(
+										"rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors",
+										selectedDuration === d
+											? "bg-gray-900 text-white shadow-sm"
+											: "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700",
+									)}
+								>
+									{d} min
+								</button>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* Timezone */}
+				<div className="md:mt-auto">
+					<div className="flex items-center gap-1.5 text-muted-foreground">
+						<Globe className="size-3.5 shrink-0" />
+						<select
+							value={timezone}
+							onChange={(e) => onTimezoneChange(e.target.value)}
+							className="cursor-pointer bg-transparent text-xs outline-none transition-colors hover:text-foreground"
+						>
+							{TIMEZONES.map((tz) => (
+								<option key={tz} value={tz}>
+									{tz.replace(/_/g, " ")}
+								</option>
+							))}
+						</select>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	// ── Individual mode (original) ──
 	const durations = [
 		...new Set(
 			(selectedPerson?.eventTypes ?? []).map((et) => et.durationMinutes),
@@ -216,7 +375,7 @@ export function PersonEventSelector({
 			)}
 
 			{/* Timezone */}
-			<div className="mt-auto">
+			<div className="md:mt-auto">
 				<div className="flex items-center gap-1.5 text-muted-foreground">
 					<Globe className="size-3.5 shrink-0" />
 					<select

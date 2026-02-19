@@ -235,7 +235,7 @@ export const availabilityOverride = createTable(
 	}),
 	(t) => [
 		index("availability_override_user_id_idx").on(t.userId),
-		uniqueIndex("availability_override_user_date_idx").on(t.userId, t.date),
+		index("availability_override_user_date_idx").on(t.userId, t.date),
 	],
 );
 
@@ -252,8 +252,13 @@ export const booking = createTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		eventTypeId: d
 			.text()
-			.notNull()
 			.references(() => eventType.id),
+		groupId: d
+			.text()
+			.references(() => group.id, { onDelete: "set null" }),
+		groupEventTypeId: d
+			.text()
+			.references(() => groupEventType.id, { onDelete: "set null" }),
 		guestName: d.text().notNull(),
 		guestEmail: d.text().notNull(),
 		guestPhone: d.text(),
@@ -357,6 +362,124 @@ export const invitation = createTable(
 	],
 );
 
+// ─── Group Tables ────────────────────────────────────────────────
+
+export const group = createTable(
+	"group",
+	(d) => ({
+		id: d
+			.text()
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		name: d.text().notNull(),
+		slug: d.text().notNull().unique(),
+		description: d.text(),
+		hostUserId: d
+			.text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		createdBy: d
+			.text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		isActive: d.boolean().notNull().default(true),
+		createdAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+		updatedAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+	}),
+	(t) => [uniqueIndex("group_slug_idx").on(t.slug)],
+);
+
+export const groupMember = createTable(
+	"group_member",
+	(d) => ({
+		id: d
+			.text()
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		groupId: d
+			.text()
+			.notNull()
+			.references(() => group.id, { onDelete: "cascade" }),
+		userId: d
+			.text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		createdAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+	}),
+	(t) => [
+		uniqueIndex("group_member_unique_idx").on(t.groupId, t.userId),
+		index("group_member_group_id_idx").on(t.groupId),
+	],
+);
+
+export const groupEventType = createTable(
+	"group_event_type",
+	(d) => ({
+		id: d
+			.text()
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		groupId: d
+			.text()
+			.notNull()
+			.references(() => group.id, { onDelete: "cascade" }),
+		title: d.text().notNull(),
+		slug: d.text().notNull(),
+		durationMinutes: d.integer().notNull(),
+		description: d.text(),
+		color: d.text().default("#3B82F6"),
+		isActive: d.boolean().notNull().default(true),
+		minimumNoticeHours: d.integer().notNull().default(24),
+		createdAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+		updatedAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+	}),
+	(t) => [
+		uniqueIndex("group_event_type_slug_idx").on(t.groupId, t.slug),
+		index("group_event_type_group_id_idx").on(t.groupId),
+	],
+);
+
+export const bookingAttendee = createTable(
+	"booking_attendee",
+	(d) => ({
+		id: d
+			.text()
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		bookingId: d
+			.text()
+			.notNull()
+			.references(() => booking.id, { onDelete: "cascade" }),
+		userId: d
+			.text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		createdAt: d
+			.timestamp({ withTimezone: true })
+			.$defaultFn(() => new Date())
+			.notNull(),
+	}),
+	(t) => [
+		uniqueIndex("booking_attendee_unique_idx").on(t.bookingId, t.userId),
+		index("booking_attendee_booking_id_idx").on(t.bookingId),
+	],
+);
+
 // ─── Relations ───────────────────────────────────────────────────
 
 export const userRelations = relations(user, ({ one, many }) => ({
@@ -368,6 +491,8 @@ export const userRelations = relations(user, ({ one, many }) => ({
 	availabilityOverrides: many(availabilityOverride),
 	bookings: many(booking),
 	googleCalendarTokens: many(googleCalendarToken),
+	groupMemberships: many(groupMember),
+	bookingAttendances: many(bookingAttendee),
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -401,16 +526,25 @@ export const availabilityOverrideRelations = relations(
 	}),
 );
 
-export const bookingRelations = relations(booking, ({ one }) => ({
+export const bookingRelations = relations(booking, ({ one, many }) => ({
 	host: one(user, { fields: [booking.hostId], references: [user.id] }),
 	eventType: one(eventType, {
 		fields: [booking.eventTypeId],
 		references: [eventType.id],
 	}),
+	group: one(group, {
+		fields: [booking.groupId],
+		references: [group.id],
+	}),
+	groupEventType: one(groupEventType, {
+		fields: [booking.groupEventTypeId],
+		references: [groupEventType.id],
+	}),
 	googleCalendarToken: one(googleCalendarToken, {
 		fields: [booking.googleCalendarTokenId],
 		references: [googleCalendarToken.id],
 	}),
+	attendees: many(bookingAttendee),
 }));
 
 export const googleCalendarTokenRelations = relations(
@@ -418,6 +552,56 @@ export const googleCalendarTokenRelations = relations(
 	({ one }) => ({
 		user: one(user, {
 			fields: [googleCalendarToken.userId],
+			references: [user.id],
+		}),
+	}),
+);
+
+export const groupRelations = relations(group, ({ one, many }) => ({
+	hostUser: one(user, {
+		fields: [group.hostUserId],
+		references: [user.id],
+		relationName: "groupHost",
+	}),
+	createdByUser: one(user, {
+		fields: [group.createdBy],
+		references: [user.id],
+		relationName: "groupCreator",
+	}),
+	members: many(groupMember),
+	eventTypes: many(groupEventType),
+}));
+
+export const groupMemberRelations = relations(groupMember, ({ one }) => ({
+	group: one(group, {
+		fields: [groupMember.groupId],
+		references: [group.id],
+	}),
+	user: one(user, {
+		fields: [groupMember.userId],
+		references: [user.id],
+	}),
+}));
+
+export const groupEventTypeRelations = relations(
+	groupEventType,
+	({ one }) => ({
+		group: one(group, {
+			fields: [groupEventType.groupId],
+			references: [group.id],
+		}),
+	}),
+);
+
+export const bookingAttendeeRelations = relations(
+	bookingAttendee,
+	({ one }) => ({
+		booking: one(booking, {
+			fields: [bookingAttendee.bookingId],
+			references: [booking.id],
+		}),
+		user: one(user, {
+			fields: [bookingAttendee.userId],
 			references: [user.id],
 		}),
 	}),
