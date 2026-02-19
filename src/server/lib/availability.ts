@@ -443,6 +443,12 @@ export async function getGoogleCalendarBusyPeriods(
 			for (const calId of calendarIds) {
 				const cal = calendars[calId];
 
+				// Skip calendars that returned errors (deleted, no access, etc.)
+				if (cal?.errors && cal.errors.length > 0) {
+					console.warn(logPrefix, `Calendar "${calId}" returned errors, skipping:`, cal.errors);
+					continue;
+				}
+
 				if (cal?.busy) {
 					for (const period of cal.busy) {
 						if (period.start && period.end) {

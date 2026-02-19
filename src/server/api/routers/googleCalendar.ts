@@ -76,11 +76,36 @@ export const googleCalendarRouter = createTRPCRouter({
 
 		// Normalize "primary" alias to the actual calendar ID
 		const primaryCalendar = calendars.find((c) => c.primary);
+		const calendarIdSet = new Set(calendars.map((c) => c.id));
 		const normalizeId = (id: string) =>
 			id === "primary" && primaryCalendar ? primaryCalendar.id : id;
 
-		const selectedIds = (token.busyCalendarIds ?? ["primary"]).map(normalizeId);
-		const eventCalendarId = normalizeId(token.calendarId);
+		const rawSelectedIds = (token.busyCalendarIds ?? ["primary"]).map(normalizeId);
+		const rawEventCalendarId = normalizeId(token.calendarId);
+
+		// Filter out calendar IDs that no longer exist in Google
+		const validSelectedIds = rawSelectedIds.filter((id) => calendarIdSet.has(id));
+		const selectedIds = validSelectedIds.length > 0
+			? validSelectedIds
+			: [primaryCalendar?.id ?? calendars[0]?.id].filter(Boolean) as string[];
+
+		const eventCalendarId = calendarIdSet.has(rawEventCalendarId)
+			? rawEventCalendarId
+			: (primaryCalendar?.id ?? calendars[0]?.id ?? rawEventCalendarId);
+
+		// Auto-heal: update DB if stale IDs were removed
+		const busyChanged = rawSelectedIds.length !== selectedIds.length;
+		const eventChanged = rawEventCalendarId !== eventCalendarId;
+		if (busyChanged || eventChanged) {
+			await ctx.db
+				.update(googleCalendarToken)
+				.set({
+					...(busyChanged ? { busyCalendarIds: selectedIds } : {}),
+					...(eventChanged ? { calendarId: eventCalendarId } : {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(googleCalendarToken.id, token.id));
+		}
 
 		return {
 			calendars,

@@ -319,7 +319,7 @@ export const bookingRouter = createTRPCRouter({
 							? `\n\nNotes from guest:\n${input.guestNotes}`
 							: "";
 
-						const result = await createCalendarEvent({
+						const eventOpts = {
 							accessToken,
 							refreshToken: token.refreshToken,
 							calendarId: token.calendarId,
@@ -330,7 +330,20 @@ export const bookingRouter = createTRPCRouter({
 							hostEmail: host.email,
 							guestEmail: input.guestEmail,
 							guestName: input.guestName,
-						});
+						};
+
+						let result: Awaited<ReturnType<typeof createCalendarEvent>> = null;
+						try {
+							result = await createCalendarEvent(eventOpts);
+						} catch (calErr) {
+							// Fallback to primary if selected calendar no longer exists
+							if (token.calendarId !== "primary") {
+								console.warn("[booking] Calendar", token.calendarId, "failed, falling back to primary:", calErr);
+								result = await createCalendarEvent({ ...eventOpts, calendarId: "primary" });
+							} else {
+								throw calErr;
+							}
+						}
 
 						if (result) {
 							await ctx.db
