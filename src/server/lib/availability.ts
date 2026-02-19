@@ -8,10 +8,10 @@ import {
 	availabilityOverride,
 	booking,
 	eventType,
-	googleCalendarToken,
 	profile,
 } from '@/server/db/schema';
 import { getOAuth2Client } from '@/server/lib/google-calendar';
+import { getAllUserTokens } from '@/server/lib/google-calendar-token';
 
 type Db = typeof DbType;
 
@@ -378,101 +378,77 @@ export async function getGoogleCalendarBusyPeriods(
 			timeMax: timeMax.toISOString(),
 		});
 
-		const [token] = await db
-			.select()
-			.from(googleCalendarToken)
-			.where(eq(googleCalendarToken.userId, userId))
-			.limit(1);
+		const tokens = await getAllUserTokens(db, userId);
 
-		if (!token) {
-			console.log(logPrefix, 'Brak tokenu dla użytkownika, pomijam kalendarz', {
+		if (tokens.length === 0) {
+			console.log(logPrefix, 'Brak tokenów dla użytkownika, pomijam kalendarz', {
 				userId,
 			});
 			return [];
 		}
 
-		const oauth2 = getOAuth2Client();
+		const allBusyPeriods: { start: Date; end: Date }[] = [];
 
-		// Auto-refresh if expired
-		if (token.expiresAt < new Date()) {
-			console.log(logPrefix, 'Odświeżanie wygasłego tokenu', { userId });
-			oauth2.setCredentials({ refresh_token: token.refreshToken });
-			const { credentials } = await oauth2.refreshAccessToken();
-
-			if (credentials.access_token && credentials.expiry_date) {
-				await db
-					.update(googleCalendarToken)
-					.set({
-						accessToken: credentials.access_token,
-						expiresAt: new Date(credentials.expiry_date),
-						updatedAt: new Date(),
-					})
-					.where(eq(googleCalendarToken.id, token.id));
-
+		for (const token of tokens) {
+			try {
+				const oauth2 = getOAuth2Client();
 				oauth2.setCredentials({
-					access_token: credentials.access_token,
+					access_token: token.accessToken,
 					refresh_token: token.refreshToken,
 				});
-			}
-		} else {
-			oauth2.setCredentials({
-				access_token: token.accessToken,
-				refresh_token: token.refreshToken,
-			});
-		}
 
-		const calendar = google.calendar({ version: 'v3', auth: oauth2 });
-		const calendarIds = token.busyCalendarIds ?? ['primary'];
+				const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+				const calendarIds = token.busyCalendarIds;
 
-		console.log(logPrefix, 'Wywołanie FreeBusy API', {
-			userId,
-			calendarIds,
-		});
+				console.log(logPrefix, 'Wywołanie FreeBusy API', {
+					userId,
+					accountEmail: token.accountEmail,
+					calendarIds,
+				});
 
-		const res = await calendar.freebusy.query({
-			requestBody: {
-				timeMin: timeMin.toISOString(),
-				timeMax: timeMax.toISOString(),
-				items: calendarIds.map((id) => ({ id })),
-			},
-		});
+				const res = await calendar.freebusy.query({
+					requestBody: {
+						timeMin: timeMin.toISOString(),
+						timeMax: timeMax.toISOString(),
+						items: calendarIds.map((id) => ({ id })),
+					},
+				});
 
-		const busyPeriods: { start: Date; end: Date }[] = [];
-		const calendars = res.data.calendars;
-		if (calendars) {
-			for (const calId of calendarIds) {
-				const cal = calendars[calId];
+				const calendars = res.data.calendars;
+				if (calendars) {
+					for (const calId of calendarIds) {
+						const cal = calendars[calId];
 
-				// Skip calendars that returned errors (deleted, no access, etc.)
-				if (cal?.errors && cal.errors.length > 0) {
-					console.warn(logPrefix, `Calendar "${calId}" returned errors, skipping:`, cal.errors);
-					continue;
-				}
+						if (cal?.errors && cal.errors.length > 0) {
+							console.warn(logPrefix, `Calendar "${calId}" (${token.accountEmail}) returned errors, skipping:`, cal.errors);
+							continue;
+						}
 
-				if (cal?.busy) {
-					for (const period of cal.busy) {
-						if (period.start && period.end) {
-							busyPeriods.push({
-								start: new Date(period.start),
-								end: new Date(period.end),
-							});
+						if (cal?.busy) {
+							for (const period of cal.busy) {
+								if (period.start && period.end) {
+									allBusyPeriods.push({
+										start: new Date(period.start),
+										end: new Date(period.end),
+									});
+								}
+							}
 						}
 					}
 				}
+			} catch (err) {
+				// Graceful degradation: skip this account, continue with others
+				console.error(logPrefix, `Błąd FreeBusy dla konta ${token.accountEmail}:`, { userId, err });
 			}
 		}
 
 		console.log(logPrefix, 'Podsumowanie FreeBusy', {
 			userId,
-			calendarIds,
-			busyPeriodsCount: busyPeriods.length,
-			allBusy: busyPeriods.map((p) => ({
-				start: p.start.toISOString(),
-				end: p.end.toISOString(),
-			})),
+			accountCount: tokens.length,
+			busyPeriodsCount: allBusyPeriods.length,
 		});
 
-		return busyPeriods;
+		return allBusyPeriods;
 	} catch (err) {
 		console.error(logPrefix, 'Błąd FreeBusy:', { userId, err });
 		return [];

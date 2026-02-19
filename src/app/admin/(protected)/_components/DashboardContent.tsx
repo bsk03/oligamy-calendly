@@ -12,6 +12,7 @@ import {
 	ListChecks,
 	Loader2,
 	Settings,
+	User,
 	Users,
 	Video,
 } from "lucide-react";
@@ -44,6 +45,13 @@ function isToday(date: Date) {
 }
 
 const SETUP_STEPS = [
+	{
+		key: "hasUsername" as const,
+		label: "Set your username",
+		description: "Choose a unique username for your personal booking URL",
+		href: "/admin/settings",
+		icon: User,
+	},
 	{
 		key: "hasProfile" as const,
 		label: "Configure profile",

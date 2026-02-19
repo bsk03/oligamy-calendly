@@ -5,37 +5,36 @@ import { Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
-export function CalendarSelector() {
+interface CalendarSelectorProps {
+	tokenId: string;
+}
+
+export function CalendarSelector({ tokenId }: CalendarSelectorProps) {
 	const {
 		data,
 		isLoading,
 		isError,
 		refetch,
-	} = api.googleCalendar.listCalendars.useQuery();
+	} = api.googleCalendar.listCalendars.useQuery({ tokenId });
 
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-	const [eventCalendarId, setEventCalendarId] = useState<string>("");
 	const [initialized, setInitialized] = useState(false);
 
 	useEffect(() => {
 		if (data && !initialized) {
 			setSelectedIds(new Set(data.selectedCalendarIds));
-			setEventCalendarId(data.eventCalendarId ?? "");
 			setInitialized(true);
 		}
 	}, [data, initialized]);
+
+	// Reset initialization when tokenId changes
+	useEffect(() => {
+		setInitialized(false);
+	}, [tokenId]);
 
 	const utils = api.useUtils();
 
@@ -43,14 +42,6 @@ export function CalendarSelector() {
 		onSuccess: () => {
 			utils.googleCalendar.listCalendars.invalidate();
 			toast.success("Busy calendars updated");
-		},
-		onError: (err) => toast.error(err.message),
-	});
-
-	const updateEventMutation = api.googleCalendar.updateEventCalendar.useMutation({
-		onSuccess: () => {
-			utils.googleCalendar.listCalendars.invalidate();
-			toast.success("Event calendar updated");
 		},
 		onError: (err) => toast.error(err.message),
 	});
@@ -76,12 +67,7 @@ export function CalendarSelector() {
 	}
 
 	function handleSaveBusy() {
-		updateBusyMutation.mutate({ calendarIds: [...selectedIds] });
-	}
-
-	function handleEventCalendarChange(calendarId: string) {
-		setEventCalendarId(calendarId);
-		updateEventMutation.mutate({ calendarId });
+		updateBusyMutation.mutate({ tokenId, calendarIds: [...selectedIds] });
 	}
 
 	if (isLoading) {
@@ -115,92 +101,52 @@ export function CalendarSelector() {
 		);
 	}
 
-	// Only calendars with write access can be used for event creation
-	const writableCalendars = data.calendars.filter(
-		(c) => c.accessRole === "owner" || c.accessRole === "writer",
-	);
-
 	return (
-		<div className="space-y-5">
-			{/* Busy calendars */}
-			<div className="space-y-2">
-				<h4 className="text-sm font-medium">
-					Calendars to check for conflicts
-				</h4>
-				<p className="text-xs text-muted-foreground">
-					Selected calendars will be checked for busy times when
-					generating available slots.
-				</p>
-				<div className="space-y-2 pt-1">
-					{data.calendars.map((cal) => (
-						<label
-							key={cal.id}
-							className="flex cursor-pointer items-center gap-3"
-						>
-							<Checkbox
-								checked={selectedIds.has(cal.id)}
-								onCheckedChange={() => toggleCalendar(cal.id)}
-							/>
-							<span
-								className="size-3 rounded-full shrink-0"
-								style={{ backgroundColor: cal.backgroundColor }}
-							/>
-							<span className="text-sm">
-								{cal.summary}
-								{cal.primary && (
-									<span className="ml-1.5 text-xs text-muted-foreground">
-										(primary)
-									</span>
-								)}
-							</span>
-						</label>
-					))}
-
-					{hasBusyChanges && (
-						<Button
-							size="sm"
-							onClick={handleSaveBusy}
-							disabled={updateBusyMutation.isPending}
-						>
-							{updateBusyMutation.isPending && (
-								<Loader2 className="size-4 animate-spin" />
+		<div className="space-y-2">
+			<h4 className="text-sm font-medium">
+				Calendars to check for conflicts
+			</h4>
+			<p className="text-xs text-muted-foreground">
+				Selected calendars will be checked for busy times when
+				generating available slots.
+			</p>
+			<div className="space-y-2 pt-1">
+				{data.calendars.map((cal) => (
+					<label
+						key={cal.id}
+						className="flex cursor-pointer items-center gap-3"
+					>
+						<Checkbox
+							checked={selectedIds.has(cal.id)}
+							onCheckedChange={() => toggleCalendar(cal.id)}
+						/>
+						<span
+							className="size-3 rounded-full shrink-0"
+							style={{ backgroundColor: cal.backgroundColor }}
+						/>
+						<span className="text-sm">
+							{cal.summary}
+							{cal.primary && (
+								<span className="ml-1.5 text-xs text-muted-foreground">
+									(primary)
+								</span>
 							)}
-							Save
-						</Button>
-					)}
-				</div>
-			</div>
+						</span>
+					</label>
+				))}
 
-			<Separator />
-
-			{/* Event calendar */}
-			<div className="space-y-2">
-				<h4 className="text-sm font-medium">
-					Calendar for new events
-				</h4>
-				<p className="text-xs text-muted-foreground">
-					New bookings will create events in this calendar.
-				</p>
-				<Select
-					value={eventCalendarId}
-					onValueChange={handleEventCalendarChange}
-					disabled={updateEventMutation.isPending}
-				>
-					<SelectTrigger className="w-full max-w-xs">
-						<SelectValue placeholder="Select calendar" />
-					</SelectTrigger>
-					<SelectContent>
-						{writableCalendars.map((cal) => (
-							<SelectItem key={cal.id} value={cal.id}>
-								<span
-									className="inline-block size-2.5 rounded-full shrink-0"
-									style={{ backgroundColor: cal.backgroundColor }}
-								/>
-								{cal.summary}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				{hasBusyChanges && (
+					<Button
+						size="sm"
+						onClick={handleSaveBusy}
+						disabled={updateBusyMutation.isPending}
+					>
+						{updateBusyMutation.isPending && (
+							<Loader2 className="size-4 animate-spin" />
+						)}
+						Save
+					</Button>
+				)}
 			</div>
 		</div>
 	);

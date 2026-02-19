@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,11 @@ import { TimeSlotList } from "./TimeSlotList";
 
 type Step = "select" | "form";
 
-export function BookingCard() {
+interface BookingCardProps {
+	username?: string | null;
+}
+
+export function BookingCard({ username }: BookingCardProps) {
 	const [step, setStep] = useState<Step>("select");
 	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [selectedDuration, setSelectedDuration] = useState<number | null>(
@@ -28,8 +32,33 @@ export function BookingCard() {
 	const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("24h");
 	const [timezone, setTimezone] = useState("Europe/Warsaw");
 
-	// Fetch users
-	const { data: people = [] } = api.user.list.useQuery();
+	// Single-person mode: fetch by username
+	const { data: singlePerson, isLoading: isSinglePersonLoading } =
+		api.user.byUsername.useQuery(
+			{ username: username! },
+			{ enabled: !!username },
+		);
+
+	// Team mode: fetch all
+	const { data: allPeople = [] } = api.user.list.useQuery(undefined, {
+		enabled: !username,
+	});
+
+	// Unified people list
+	const people = username
+		? singlePerson
+			? [singlePerson]
+			: []
+		: allPeople;
+
+	const isLocked = !!username;
+
+	// Auto-select single person
+	useEffect(() => {
+		if (isLocked && singlePerson && selectedUserId !== singlePerson.userId) {
+			setSelectedUserId(singlePerson.userId);
+		}
+	}, [isLocked, singlePerson, selectedUserId]);
 
 	// Derive selected event type from person + duration
 	const selectedPerson = people.find((p) => p.userId === selectedUserId);
@@ -99,6 +128,7 @@ export function BookingCard() {
 		!!selectedSlotObj;
 
 	const handleUserChange = (userId: string) => {
+		if (isLocked) return;
 		setSelectedUserId(userId);
 		setSelectedDuration(null);
 		setSelectedDate(null);
@@ -129,6 +159,50 @@ export function BookingCard() {
 	const handleBack = () => {
 		setStep("select");
 	};
+
+	// Loading state for subdomain mode
+	if (username && isSinglePersonLoading) {
+		return (
+			<Card className="w-full max-w-5xl">
+				<CardContent>
+					<div className="flex h-[480px] flex-col md:flex-row">
+						{/* Left skeleton */}
+						<div className="w-full shrink-0 space-y-5 pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
+							<div className="flex items-center gap-3">
+								<div className="size-10 shrink-0 animate-pulse rounded-full bg-muted" />
+								<div className="flex-1 space-y-2">
+									<div className="h-4 w-28 animate-pulse rounded bg-muted" />
+									<div className="h-3 w-20 animate-pulse rounded bg-muted" />
+								</div>
+							</div>
+							<div className="space-y-2">
+								<div className="h-3 w-16 animate-pulse rounded bg-muted" />
+								<div className="flex gap-1.5">
+									<div className="h-8 w-16 animate-pulse rounded-full bg-muted" />
+									<div className="h-8 w-16 animate-pulse rounded-full bg-muted" />
+								</div>
+							</div>
+						</div>
+						{/* Middle skeleton */}
+						<div className="shrink-0 border-t py-5 md:border-t-0 md:px-6 md:py-0">
+							<div className="h-[300px] w-[280px] animate-pulse rounded-lg bg-muted" />
+						</div>
+						{/* Right skeleton */}
+						<div className="flex w-full flex-col border-t pt-5 md:w-[200px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
+							<div className="space-y-2">
+								{Array.from({ length: 5 }).map((_, i) => (
+									<div
+										key={i}
+										className="h-10 w-full animate-pulse rounded-lg bg-muted"
+									/>
+								))}
+							</div>
+						</div>
+					</div>
+				</CardContent>
+			</Card>
+		);
+	}
 
 	// Step 2: Booking form
 	if (
@@ -166,6 +240,7 @@ export function BookingCard() {
 							onDurationChange={handleDurationChange}
 							timezone={timezone}
 							onTimezoneChange={setTimezone}
+							locked={isLocked}
 						/>
 					</div>
 

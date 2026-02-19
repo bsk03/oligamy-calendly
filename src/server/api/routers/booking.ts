@@ -10,7 +10,6 @@ import {
 	CalendarResponseStatus,
 	booking,
 	eventType,
-	googleCalendarToken,
 	user,
 } from "@/server/db/schema";
 import { getGoogleCalendarBusyPeriods } from "@/server/lib/availability";
@@ -19,8 +18,8 @@ import {
 	createCalendarEvent,
 	declineCalendarEvent,
 	getCalendarEventStatus,
-	refreshAccessToken,
 } from "@/server/lib/google-calendar";
+import { getEventTargetToken, getValidTokenById, getValidTokensByIds } from "@/server/lib/google-calendar-token";
 
 export const bookingRouter = createTRPCRouter({
 	/** List bookings. Users see own bookings, admins can filter by hostId. */
@@ -285,29 +284,9 @@ export const bookingRouter = createTRPCRouter({
 
 			// Create Google Calendar event + Meet (if host has calendar connected)
 			try {
-				const [token] = await ctx.db
-					.select()
-					.from(googleCalendarToken)
-					.where(eq(googleCalendarToken.userId, input.hostId))
-					.limit(1);
+				const token = await getEventTargetToken(ctx.db, input.hostId);
 
 				if (token) {
-					let accessToken = token.accessToken;
-					if (token.expiresAt < new Date()) {
-						const credentials = await refreshAccessToken(token.refreshToken);
-						if (credentials.access_token && credentials.expiry_date) {
-							accessToken = credentials.access_token;
-							await ctx.db
-								.update(googleCalendarToken)
-								.set({
-									accessToken: credentials.access_token,
-									expiresAt: new Date(credentials.expiry_date),
-									updatedAt: new Date(),
-								})
-								.where(eq(googleCalendarToken.id, token.id));
-						}
-					}
-
 					const [host] = await ctx.db
 						.select({ email: user.email })
 						.from(user)
@@ -320,7 +299,7 @@ export const bookingRouter = createTRPCRouter({
 							: "";
 
 						const eventOpts = {
-							accessToken,
+							accessToken: token.accessToken,
 							refreshToken: token.refreshToken,
 							calendarId: token.calendarId,
 							summary: `${et.title} — ${input.guestName}`,
@@ -350,6 +329,7 @@ export const bookingRouter = createTRPCRouter({
 								.update(booking)
 								.set({
 									googleEventId: result.googleEventId,
+									googleCalendarTokenId: token.id,
 									meetLink: result.meetLink,
 									updatedAt: new Date(),
 								})
@@ -394,29 +374,11 @@ export const bookingRouter = createTRPCRouter({
 			// Accept Google Calendar event (set host responseStatus to "accepted")
 			if (b.googleEventId) {
 				try {
-					const [token] = await ctx.db
-						.select()
-						.from(googleCalendarToken)
-						.where(eq(googleCalendarToken.userId, b.hostId))
-						.limit(1);
+					const token = b.googleCalendarTokenId
+						? await getValidTokenById(ctx.db, b.googleCalendarTokenId)
+						: await getEventTargetToken(ctx.db, b.hostId);
 
 					if (token) {
-						let accessToken = token.accessToken;
-						if (token.expiresAt < new Date()) {
-							const credentials = await refreshAccessToken(token.refreshToken);
-							if (credentials.access_token && credentials.expiry_date) {
-								accessToken = credentials.access_token;
-								await ctx.db
-									.update(googleCalendarToken)
-									.set({
-										accessToken: credentials.access_token,
-										expiresAt: new Date(credentials.expiry_date),
-										updatedAt: new Date(),
-									})
-									.where(eq(googleCalendarToken.id, token.id));
-							}
-						}
-
 						const [host] = await ctx.db
 							.select({ email: user.email })
 							.from(user)
@@ -425,7 +387,7 @@ export const bookingRouter = createTRPCRouter({
 
 						if (host) {
 							await acceptCalendarEvent({
-								accessToken,
+								accessToken: token.accessToken,
 								refreshToken: token.refreshToken,
 								calendarId: token.calendarId,
 								googleEventId: b.googleEventId,
@@ -469,29 +431,11 @@ export const bookingRouter = createTRPCRouter({
 			// Decline Google Calendar event
 			if (b.googleEventId) {
 				try {
-					const [token] = await ctx.db
-						.select()
-						.from(googleCalendarToken)
-						.where(eq(googleCalendarToken.userId, b.hostId))
-						.limit(1);
+					const token = b.googleCalendarTokenId
+						? await getValidTokenById(ctx.db, b.googleCalendarTokenId)
+						: await getEventTargetToken(ctx.db, b.hostId);
 
 					if (token) {
-						let accessToken = token.accessToken;
-						if (token.expiresAt < new Date()) {
-							const credentials = await refreshAccessToken(token.refreshToken);
-							if (credentials.access_token && credentials.expiry_date) {
-								accessToken = credentials.access_token;
-								await ctx.db
-									.update(googleCalendarToken)
-									.set({
-										accessToken: credentials.access_token,
-										expiresAt: new Date(credentials.expiry_date),
-										updatedAt: new Date(),
-									})
-									.where(eq(googleCalendarToken.id, token.id));
-							}
-						}
-
 						const [host] = await ctx.db
 							.select({ email: user.email })
 							.from(user)
@@ -500,7 +444,7 @@ export const bookingRouter = createTRPCRouter({
 
 						if (host) {
 							await declineCalendarEvent({
-								accessToken,
+								accessToken: token.accessToken,
 								refreshToken: token.refreshToken,
 								calendarId: token.calendarId,
 								googleEventId: b.googleEventId,
@@ -536,51 +480,49 @@ export const bookingRouter = createTRPCRouter({
 		const withGoogleEvent = upcomingBookings.filter((b) => b.googleEventId);
 		if (withGoogleEvent.length === 0) return { synced: 0 };
 
-		// Get unique host IDs
-		const hostIds = [...new Set(withGoogleEvent.map((b) => b.hostId))];
+		// Collect unique token IDs from bookings (filter nulls)
+		const tokenIds = [...new Set(
+			withGoogleEvent
+				.map((b) => b.googleCalendarTokenId)
+				.filter((id): id is string => id !== null),
+		)];
 
-		// Fetch tokens and emails for all relevant hosts
-		const tokens = await ctx.db
-			.select()
-			.from(googleCalendarToken)
-			.where(inArray(googleCalendarToken.userId, hostIds));
+		// Fetch tokens by ID for bookings that have a token reference
+		const tokenByIdMap = await getValidTokensByIds(ctx.db, tokenIds);
 
+		// For legacy bookings without tokenId, get event target tokens per host
+		const hostsNeedingFallback = [...new Set(
+			withGoogleEvent
+				.filter((b) => !b.googleCalendarTokenId)
+				.map((b) => b.hostId),
+		)];
+
+		const fallbackTokenMap = new Map<string, Awaited<ReturnType<typeof getEventTargetToken>>>();
+		for (const hostId of hostsNeedingFallback) {
+			fallbackTokenMap.set(hostId, await getEventTargetToken(ctx.db, hostId));
+		}
+
+		// Fetch host emails
+		const allHostIds = [...new Set(withGoogleEvent.map((b) => b.hostId))];
 		const hosts = await ctx.db
 			.select({ id: user.id, email: user.email })
 			.from(user)
-			.where(inArray(user.id, hostIds));
+			.where(inArray(user.id, allHostIds));
 
-		const tokenMap = new Map(tokens.map((t) => [t.userId, t]));
 		const hostMap = new Map(hosts.map((h) => [h.id, h]));
 
 		let synced = 0;
 
 		for (const b of withGoogleEvent) {
-			const token = tokenMap.get(b.hostId);
+			const token = b.googleCalendarTokenId
+				? tokenByIdMap.get(b.googleCalendarTokenId)
+				: fallbackTokenMap.get(b.hostId);
 			const host = hostMap.get(b.hostId);
 			if (!token || !host || !b.googleEventId) continue;
 
 			try {
-				let accessToken = token.accessToken;
-				if (token.expiresAt < new Date()) {
-					const credentials = await refreshAccessToken(token.refreshToken);
-					if (credentials.access_token && credentials.expiry_date) {
-						accessToken = credentials.access_token;
-						await ctx.db
-							.update(googleCalendarToken)
-							.set({
-								accessToken: credentials.access_token,
-								expiresAt: new Date(credentials.expiry_date),
-								updatedAt: new Date(),
-							})
-							.where(eq(googleCalendarToken.id, token.id));
-						token.accessToken = accessToken;
-						token.expiresAt = new Date(credentials.expiry_date);
-					}
-				}
-
 				const status = await getCalendarEventStatus({
-					accessToken,
+					accessToken: token.accessToken,
 					refreshToken: token.refreshToken,
 					calendarId: token.calendarId,
 					googleEventId: b.googleEventId,

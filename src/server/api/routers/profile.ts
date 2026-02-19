@@ -1,5 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod/v4";
+import { TRPCError } from "@trpc/server";
 
 import {
 	createTRPCRouter,
@@ -34,6 +35,7 @@ export const profileRouter = createTRPCRouter({
 
 		return {
 			userId,
+			username: null as string | null,
 			bio: null as string | null,
 			avatarUrl: null as string | null,
 			timezone: "Europe/Warsaw",
@@ -51,6 +53,12 @@ export const profileRouter = createTRPCRouter({
 	update: protectedProcedure
 		.input(
 			z.object({
+				username: z.string()
+					.min(3)
+					.max(40)
+					.regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "Only lowercase letters, numbers, and hyphens. Must start and end with a letter or number.")
+					.nullable()
+					.optional(),
 				bio: z.string().max(300).optional(),
 				timezone: z.string().min(1),
 				isVisibleOnHome: z.boolean(),
@@ -61,6 +69,27 @@ export const profileRouter = createTRPCRouter({
 		)
 		.mutation(async ({ ctx, input }) => {
 			const userId = ctx.session.user.id;
+
+			// Check username uniqueness
+			if (input.username) {
+				const [conflict] = await ctx.db
+					.select({ userId: profile.userId })
+					.from(profile)
+					.where(
+						and(
+							eq(profile.username, input.username),
+							ne(profile.userId, userId),
+						),
+					)
+					.limit(1);
+
+				if (conflict) {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This username is already taken.",
+					});
+				}
+			}
 
 			// Upsert profile
 			const [existing] = await ctx.db
@@ -81,6 +110,10 @@ export const profileRouter = createTRPCRouter({
 				}),
 			};
 
+			const usernameField = input.username !== undefined
+				? { username: input.username }
+				: {};
+
 			if (existing) {
 				await ctx.db
 					.update(profile)
@@ -88,6 +121,7 @@ export const profileRouter = createTRPCRouter({
 						bio: input.bio ?? null,
 						timezone: input.timezone,
 						isVisibleOnHome: input.isVisibleOnHome,
+						...usernameField,
 						...bookingWindowFields,
 						updatedAt: new Date(),
 					})
@@ -98,6 +132,7 @@ export const profileRouter = createTRPCRouter({
 					bio: input.bio ?? null,
 					timezone: input.timezone,
 					isVisibleOnHome: input.isVisibleOnHome,
+					...usernameField,
 					...bookingWindowFields,
 				});
 			}
@@ -108,16 +143,18 @@ export const profileRouter = createTRPCRouter({
 	setupStatus: protectedProcedure.query(async ({ ctx }) => {
 		const userId = ctx.session.user.id;
 
-		// 1. Profile exists + visible
+		// 1. Profile exists + visible + has username
 		const [p] = await ctx.db
 			.select({
 				isVisibleOnHome: profile.isVisibleOnHome,
+				username: profile.username,
 			})
 			.from(profile)
 			.where(eq(profile.userId, userId))
 			.limit(1);
 
 		const hasProfile = !!p && p.isVisibleOnHome;
+		const hasUsername = !!p?.username;
 
 		// 2. At least one active event type
 		const [et] = await ctx.db
@@ -157,11 +194,29 @@ export const profileRouter = createTRPCRouter({
 		const hasGoogleCalendar = !!gcal;
 
 		return {
+			hasUsername,
 			hasProfile,
 			hasEventTypes,
 			hasAvailability,
 			hasGoogleCalendar,
-			isComplete: hasProfile && hasEventTypes && hasAvailability,
+			isComplete: hasUsername && hasProfile && hasEventTypes && hasAvailability,
 		};
 	}),
+
+	checkUsername: protectedProcedure
+		.input(z.object({ username: z.string().min(3).max(40) }))
+		.query(async ({ ctx, input }) => {
+			const [existing] = await ctx.db
+				.select({ userId: profile.userId })
+				.from(profile)
+				.where(
+					and(
+						eq(profile.username, input.username),
+						ne(profile.userId, ctx.session.user.id),
+					),
+				)
+				.limit(1);
+
+			return { available: !existing };
+		}),
 });

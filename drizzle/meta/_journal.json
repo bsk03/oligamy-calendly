@@ -43,6 +43,20 @@
       "when": 1771409556701,
       "tag": "0005_tranquil_nocturne",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771488682128,
+      "tag": "0006_dark_wiccan",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1771493524519,
+      "tag": "0007_perfect_captain_marvel",
+      "breakpoints": true
     }
   ]
 }

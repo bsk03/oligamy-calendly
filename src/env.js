@@ -19,6 +19,8 @@ export const env = createEnv({
 		GOOGLE_CLIENT_SECRET: z.string(),
 		GOOGLE_REDIRECT_URI: z.string().url(),
 
+		TOKEN_ENCRYPTION_KEY: z.string().length(64),
+
 		SMTP_HOST: z.string(),
 		SMTP_PORT: z.coerce.number(),
 		SMTP_USER: z.string(),
@@ -38,6 +40,7 @@ export const env = createEnv({
 		GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
 		GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
 		GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+		TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
 		SMTP_HOST: process.env.SMTP_HOST,
 		SMTP_PORT: process.env.SMTP_PORT,
 		SMTP_USER: process.env.SMTP_USER,

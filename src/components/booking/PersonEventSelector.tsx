@@ -49,6 +49,7 @@ interface PersonEventSelectorProps {
 	onDurationChange: (duration: number) => void;
 	timezone: string;
 	onTimezoneChange: (tz: string) => void;
+	locked?: boolean;
 }
 
 function getInitials(name: string): string {
@@ -69,6 +70,7 @@ export function PersonEventSelector({
 	onDurationChange,
 	timezone,
 	onTimezoneChange,
+	locked = false,
 }: PersonEventSelectorProps) {
 	const selectedPerson = people.find((p) => p.userId === selectedUserId);
 
@@ -80,70 +82,103 @@ export function PersonEventSelector({
 
 	return (
 		<div className="flex h-full flex-col gap-5">
-			{/* Expert Selection — Avatar Row */}
-			<div>
-				<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-					Select Expert
-				</p>
-				{people.length === 0 ? (
-					<div className="flex gap-2.5 pb-1">
-						{Array.from({ length: 3 }).map((_, i) => (
-							<div
-								key={i}
-								className="size-10 shrink-0 animate-pulse rounded-full bg-gray-100"
-							/>
-						))}
+			{/* Locked mode: single person header */}
+			{locked && selectedPerson ? (
+				<div className="flex items-center gap-3">
+					<Avatar size="lg">
+						<AvatarImage
+							src={
+								selectedPerson.avatarUrl ??
+								selectedPerson.image ??
+								undefined
+							}
+							alt={selectedPerson.name}
+						/>
+						<AvatarFallback>
+							{getInitials(selectedPerson.name)}
+						</AvatarFallback>
+					</Avatar>
+					<div className="min-w-0">
+						<h3 className="text-[15px] font-semibold leading-tight">
+							{selectedPerson.name}
+						</h3>
+						{selectedPerson.bio && (
+							<p className="text-[13px] text-muted-foreground line-clamp-2">
+								{selectedPerson.bio}
+							</p>
+						)}
 					</div>
-				) : (
-					<div className="flex gap-2.5 overflow-x-auto p-1">
-						{people.map((person) => (
-							<button
-								key={person.userId}
-								type="button"
-								onClick={() => onUserChange(person.userId)}
-								className={cn(
-									"shrink-0 rounded-full transition-all duration-200",
-									selectedUserId === person.userId
-										? "ring-2 ring-gray-900 ring-offset-2"
-										: "opacity-40 hover:opacity-80",
-								)}
-							>
-								<Avatar size="lg">
-									<AvatarImage
-										src={
-											person.avatarUrl ??
-											person.image ??
-											undefined
-										}
-										alt={person.name}
-									/>
-									<AvatarFallback>
-										{getInitials(person.name)}
-									</AvatarFallback>
-								</Avatar>
-							</button>
-						))}
-					</div>
-				)}
-			</div>
-
-			{/* Dynamic Info */}
-			{selectedPerson && (
-				<div className="space-y-0.5">
-					<h3 className="text-[15px] font-semibold leading-tight">
-						{selectedPerson.name}
-					</h3>
-					{selectedPerson.bio && (
-						<p className="text-[13px] text-muted-foreground">
-							{selectedPerson.bio}
+				</div>
+			) : (
+				<>
+					{/* Expert Selection — Avatar Row */}
+					<div>
+						<p className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+							Select Expert
 						</p>
-					)}
-					{selectedEventType && (
-						<div className="flex items-center gap-1.5 pt-1.5 text-[13px] text-muted-foreground">
-							<GoogleMeetIcon className="size-3.5 shrink-0" />
-							<span>{selectedEventType.title}</span>
+						{people.length === 0 ? (
+							<div className="flex gap-2.5 pb-1">
+								{Array.from({ length: 3 }).map((_, i) => (
+									<div
+										key={i}
+										className="size-10 shrink-0 animate-pulse rounded-full bg-gray-100"
+									/>
+								))}
+							</div>
+						) : (
+							<div className="flex gap-2.5 overflow-x-auto p-1">
+								{people.map((person) => (
+									<button
+										key={person.userId}
+										type="button"
+										onClick={() => onUserChange(person.userId)}
+										className={cn(
+											"shrink-0 rounded-full transition-all duration-200",
+											selectedUserId === person.userId
+												? "ring-2 ring-gray-900 ring-offset-2"
+												: "opacity-40 hover:opacity-80",
+										)}
+									>
+										<Avatar size="lg">
+											<AvatarImage
+												src={
+													person.avatarUrl ??
+													person.image ??
+													undefined
+												}
+												alt={person.name}
+											/>
+											<AvatarFallback>
+												{getInitials(person.name)}
+											</AvatarFallback>
+										</Avatar>
+									</button>
+								))}
+							</div>
+						)}
+					</div>
+
+					{/* Dynamic Info */}
+					{selectedPerson && (
+						<div className="space-y-0.5">
+							<h3 className="text-[15px] font-semibold leading-tight">
+								{selectedPerson.name}
+							</h3>
+							{selectedPerson.bio && (
+								<p className="text-[13px] text-muted-foreground">
+									{selectedPerson.bio}
+								</p>
+							)}
 						</div>
 					)}
+				</>
+			)}
+
+			{/* Event type info */}
+			{selectedEventType && (
+				<div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+					<GoogleMeetIcon className="size-3.5 shrink-0" />
+					<span>{selectedEventType.title}</span>
 				</div>
 			)}
 

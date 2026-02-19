@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Calendar, Globe, Loader2, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Calendar, CheckCircle2, Globe, Link, Loader2, User, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +38,7 @@ export function ProfileSettings() {
 	const { data: profileData, isLoading } = api.profile.get.useQuery();
 	const utils = api.useUtils();
 
+	const [username, setUsername] = useState("");
 	const [bio, setBio] = useState("");
 	const [timezone, setTimezone] = useState("Europe/Warsaw");
 	const [isVisibleOnHome, setIsVisibleOnHome] = useState(false);
@@ -47,6 +48,7 @@ export function ProfileSettings() {
 
 	useEffect(() => {
 		if (profileData) {
+			setUsername(profileData.username ?? "");
 			setBio(profileData.bio ?? "");
 			setTimezone(profileData.timezone);
 			setIsVisibleOnHome(profileData.isVisibleOnHome);
@@ -73,6 +75,7 @@ export function ProfileSettings() {
 
 	const handleSave = () => {
 		updateProfile.mutate({
+			username: username || null,
 			bio: bio || undefined,
 			timezone,
 			isVisibleOnHome,
@@ -92,7 +95,8 @@ export function ProfileSettings() {
 
 	const hasChanges =
 		profileData &&
-		((bio || "") !== (profileData.bio ?? "") ||
+		((username || "") !== (profileData.username ?? "") ||
+			(bio || "") !== (profileData.bio ?? "") ||
 			timezone !== profileData.timezone ||
 			isVisibleOnHome !== profileData.isVisibleOnHome ||
 			bookingWindowMode !== ((profileData.bookingWindowMode as string) ?? "relative") ||
@@ -101,6 +105,13 @@ export function ProfileSettings() {
 
 	return (
 		<div className="grid gap-6">
+			{/* Username / Personal URL */}
+			<UsernameCard
+				username={username}
+				savedUsername={profileData?.username ?? ""}
+				onUsernameChange={setUsername}
+			/>
+
 			{/* Profile Info */}
 			<Card>
 				<CardHeader>
@@ -271,5 +282,171 @@ export function ProfileSettings() {
 				Save changes
 			</Button>
 		</div>
+	);
+}
+
+const USERNAME_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+function useDebounce<T>(value: T, delayMs: number): T {
+	const [debounced, setDebounced] = useState(value);
+	useEffect(() => {
+		const timer = setTimeout(() => setDebounced(value), delayMs);
+		return () => clearTimeout(timer);
+	}, [value, delayMs]);
+	return debounced;
+}
+
+function UsernameCard({
+	username,
+	savedUsername,
+	onUsernameChange,
+}: {
+	username: string;
+	savedUsername: string;
+	onUsernameChange: (v: string) => void;
+}) {
+	const debouncedUsername = useDebounce(username, 400);
+
+	const isValidFormat = username.length >= 3 && USERNAME_REGEX.test(username);
+	const isUnchanged = username === savedUsername && username !== "";
+
+	const { data: checkResult, isFetching: isChecking } =
+		api.profile.checkUsername.useQuery(
+			{ username: debouncedUsername },
+			{
+				enabled: isValidFormat && !isUnchanged && debouncedUsername === username,
+			},
+		);
+
+	const baseDomain = useMemo(() => {
+		if (typeof window === "undefined") return "localhost:3000";
+		const host = window.location.host;
+		// Strip any existing subdomain for preview (e.g., "app.book-cal.com" → "book-cal.com")
+		// For localhost, keep as-is
+		return host;
+	}, []);
+
+	const previewUrl = username ? `${username}.${baseDomain}` : null;
+
+	let validationStatus: "idle" | "invalid" | "checking" | "taken" | "available" | "saved" = "idle";
+	if (username === "") {
+		validationStatus = "idle";
+	} else if (username.length < 3) {
+		validationStatus = "invalid";
+	} else if (!isValidFormat) {
+		validationStatus = "invalid";
+	} else if (isUnchanged) {
+		validationStatus = "saved";
+	} else if (isChecking || debouncedUsername !== username) {
+		validationStatus = "checking";
+	} else if (checkResult?.available === false) {
+		validationStatus = "taken";
+	} else if (checkResult?.available === true) {
+		validationStatus = "available";
+	}
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2">
+					<Link className="size-4" />
+					Personal URL
+				</CardTitle>
+				<CardDescription>
+					Your unique booking subdomain. Guests will visit this
+					address to schedule meetings with you.
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				<div className="grid gap-2">
+					<Label htmlFor="username">Username</Label>
+					<div className="flex items-center">
+						<Input
+							id="username"
+							placeholder="e.g. kowalczyk"
+							value={username}
+							onChange={(e) =>
+								onUsernameChange(
+									e.target.value
+										.toLowerCase()
+										.replace(/[^a-z0-9-]/g, ""),
+								)
+							}
+							className="rounded-r-none"
+						/>
+						<span className="flex h-9 items-center rounded-r-md border border-l-0 bg-muted px-3 text-sm text-muted-foreground whitespace-nowrap">
+							.{baseDomain}
+						</span>
+					</div>
+					<p className="text-xs text-muted-foreground">
+						Only lowercase letters, numbers, and hyphens. Min 3
+						characters.
+					</p>
+				</div>
+
+				{/* Validation feedback */}
+				{validationStatus === "invalid" && (
+					<div className="flex items-center gap-1.5 text-xs text-destructive">
+						<XCircle className="size-3.5" />
+						{username.length < 3
+							? "Username must be at least 3 characters."
+							: "Only lowercase letters, numbers, and hyphens. Must start and end with a letter or number."}
+					</div>
+				)}
+				{validationStatus === "checking" && (
+					<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+						<Loader2 className="size-3.5 animate-spin" />
+						Checking availability...
+					</div>
+				)}
+				{validationStatus === "taken" && (
+					<div className="flex items-center gap-1.5 text-xs text-destructive">
+						<XCircle className="size-3.5" />
+						This username is already taken.
+					</div>
+				)}
+				{validationStatus === "available" && (
+					<div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+						<CheckCircle2 className="size-3.5" />
+						Username is available!
+					</div>
+				)}
+				{validationStatus === "saved" && (
+					<div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+						<CheckCircle2 className="size-3.5" />
+						This is your current username.
+					</div>
+				)}
+
+				{/* Link preview */}
+				{previewUrl && validationStatus !== "invalid" && (
+					<div className="rounded-md border bg-muted/50 px-3 py-2">
+						<p className="text-xs text-muted-foreground mb-1">
+							Your booking link will be:
+						</p>
+						<p className="text-sm font-medium font-mono">
+							{previewUrl}
+						</p>
+						{process.env.NODE_ENV === "development" && (
+							<div className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+								<AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+								<span>
+									Development mode — subdomain routing requires
+									DNS / hosts file configuration (e.g.{" "}
+									<code className="rounded bg-muted px-1 font-mono">
+										127.0.0.1 {previewUrl.split(":")[0]}
+									</code>
+									) or use{" "}
+									<code className="rounded bg-muted px-1 font-mono">
+										{username}.lvh.me:3000
+									</code>{" "}
+									which resolves to 127.0.0.1 automatically.
+								</span>
+							</div>
+						)}
+					</div>
+				)}
+			</CardContent>
+		</Card>
 	);
 }

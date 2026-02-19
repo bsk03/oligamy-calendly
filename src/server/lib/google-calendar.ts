@@ -13,6 +13,7 @@ export function getOAuth2Client() {
 const SCOPES = [
 	'https://www.googleapis.com/auth/calendar.readonly',
 	'https://www.googleapis.com/auth/calendar.events',
+	'https://www.googleapis.com/auth/userinfo.email',
 ];
 
 export function getAuthUrl() {
@@ -28,6 +29,23 @@ export async function getTokensFromCode(code: string) {
 	const client = getOAuth2Client();
 	const { tokens } = await client.getToken(code);
 	return tokens;
+}
+
+/**
+ * Fetches the email address of the Google account using the access token.
+ */
+export async function getGoogleAccountEmail(accessToken: string): Promise<string> {
+	const oauth2Client = getOAuth2Client();
+	oauth2Client.setCredentials({ access_token: accessToken });
+
+	const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+	const { data } = await oauth2.userinfo.get();
+
+	if (!data.email) {
+		throw new Error('Could not retrieve Google account email');
+	}
+
+	return data.email;
 }
 
 export async function refreshAccessToken(refreshToken: string) {

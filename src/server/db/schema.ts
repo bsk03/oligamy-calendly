@@ -142,6 +142,7 @@ export const profile = createTable(
 			.text()
 			.primaryKey()
 			.references(() => user.id, { onDelete: "cascade" }),
+		username: d.text().unique(),
 		bio: d.text(),
 		avatarUrl: d.text(),
 		timezone: d.text().notNull().default("Europe/Warsaw"),
@@ -262,6 +263,9 @@ export const booking = createTable(
 		timezone: d.text().notNull(),
 		status: d.text().notNull().default(BookingStatus.PENDING),
 		googleEventId: d.text(),
+		googleCalendarTokenId: d
+			.text()
+			.references(() => googleCalendarToken.id, { onDelete: "set null" }),
 		meetLink: d.text(),
 		cancelToken: d
 			.text()
@@ -300,8 +304,9 @@ export const googleCalendarToken = createTable(
 		userId: d
 			.text()
 			.notNull()
-			.unique()
 			.references(() => user.id, { onDelete: "cascade" }),
+		accountEmail: d.text().notNull().default("unknown"),
+		isEventTarget: d.boolean().notNull().default(false),
 		accessToken: d.text().notNull(),
 		refreshToken: d.text().notNull(),
 		expiresAt: d.timestamp({ withTimezone: true }).notNull(),
@@ -316,6 +321,10 @@ export const googleCalendarToken = createTable(
 			.$defaultFn(() => new Date())
 			.notNull(),
 	}),
+	(t) => [
+		index("gcal_token_user_id_idx").on(t.userId),
+		uniqueIndex("gcal_token_user_account_idx").on(t.userId, t.accountEmail),
+	],
 );
 
 export const invitation = createTable(
@@ -358,7 +367,7 @@ export const userRelations = relations(user, ({ one, many }) => ({
 	availabilities: many(availability),
 	availabilityOverrides: many(availabilityOverride),
 	bookings: many(booking),
-	googleCalendarToken: one(googleCalendarToken),
+	googleCalendarTokens: many(googleCalendarToken),
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -397,6 +406,10 @@ export const bookingRelations = relations(booking, ({ one }) => ({
 	eventType: one(eventType, {
 		fields: [booking.eventTypeId],
 		references: [eventType.id],
+	}),
+	googleCalendarToken: one(googleCalendarToken, {
+		fields: [booking.googleCalendarTokenId],
+		references: [googleCalendarToken.id],
 	}),
 }));
 
