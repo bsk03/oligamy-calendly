@@ -15,8 +15,12 @@ import {
 } from "@/server/db/schema";
 
 export const teamRouter = createTRPCRouter({
-	/** All registered users with their setup status (visible to everyone logged in) */
+	/** All registered users with their setup status (admin only) */
 	list: protectedProcedure.query(async ({ ctx }) => {
+		if (ctx.session.user.role !== "admin") {
+			throw new TRPCError({ code: "FORBIDDEN" });
+		}
+
 		const users = await ctx.db
 			.select({
 				id: user.id,

@@ -14,6 +14,7 @@ import {
 	profile,
 	user,
 } from "@/server/db/schema";
+import { timezoneSchema } from "@/server/lib/validators";
 
 const slugRegex = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
@@ -129,7 +130,7 @@ export const groupRouter = createTRPCRouter({
 					.regex(slugRegex, "Only lowercase letters, numbers, and hyphens."),
 				description: z.string().max(500).optional(),
 				hostUserId: z.string(),
-				timezone: z.string().min(1).optional(),
+				timezone: timezoneSchema.optional(),
 				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
 				bookingWindowDays: z.number().int().min(1).max(365).optional(),
 				bookingWindowEndDate: z.string().nullable().optional(),
@@ -221,7 +222,7 @@ export const groupRouter = createTRPCRouter({
 				description: z.string().max(500).nullable().optional(),
 				hostUserId: z.string().optional(),
 				isActive: z.boolean().optional(),
-				timezone: z.string().min(1).optional(),
+				timezone: timezoneSchema.optional(),
 				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
 				bookingWindowDays: z.number().int().min(1).max(365).optional(),
 				bookingWindowEndDate: z.string().nullable().optional(),

@@ -24,6 +24,7 @@ import {
 	getCalendarEventStatus,
 } from "@/server/lib/google-calendar";
 import { getEventTargetToken, getValidTokenById, getValidTokensByIds } from "@/server/lib/google-calendar-token";
+import { timezoneSchema } from "@/server/lib/validators";
 
 export const bookingRouter = createTRPCRouter({
 	/** List bookings. Users see own bookings, admins can filter by hostId. */
@@ -220,7 +221,7 @@ export const bookingRouter = createTRPCRouter({
 				groupEventTypeId: z.string().optional(),
 				startTime: z.string().datetime(),
 				endTime: z.string().datetime(),
-				timezone: z.string(),
+				timezone: timezoneSchema,
 				guestName: z.string().min(1).max(200),
 				guestEmail: z.string().email(),
 				guestNotes: z.string().max(1000).optional(),
@@ -230,8 +231,17 @@ export const bookingRouter = createTRPCRouter({
 			const startTime = new Date(input.startTime);
 			const endTime = new Date(input.endTime);
 
+			// Basic time validation
+			if (startTime >= endTime) {
+				throw new TRPCError({ code: "BAD_REQUEST", message: "Start time must be before end time" });
+			}
+			if (startTime < new Date()) {
+				throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot book in the past" });
+			}
+
 			let resolvedHostId: string;
 			let eventTitle: string;
+			let durationMinutes: number;
 			let resolvedEventTypeId: string | null = null;
 			let resolvedGroupId: string | null = null;
 			let resolvedGroupEventTypeId: string | null = null;
@@ -250,7 +260,7 @@ export const bookingRouter = createTRPCRouter({
 					)
 					.limit(1);
 
-				if (!get) throw new Error("Invalid group event type");
+				if (!get) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid group event type" });
 
 				const [g] = await ctx.db
 					.select()
@@ -258,10 +268,11 @@ export const bookingRouter = createTRPCRouter({
 					.where(and(eq(group.id, get.groupId), eq(group.isActive, true)))
 					.limit(1);
 
-				if (!g) throw new Error("Group not found or inactive");
+				if (!g) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found or inactive" });
 
 				resolvedHostId = g.hostUserId;
 				eventTitle = get.title;
+				durationMinutes = get.durationMinutes;
 				resolvedGroupId = g.id;
 				resolvedGroupEventTypeId = get.id;
 
@@ -275,7 +286,7 @@ export const bookingRouter = createTRPCRouter({
 			} else {
 				// ── Individual booking ──
 				if (!input.hostId || !input.eventTypeId) {
-					throw new Error("hostId and eventTypeId are required for individual bookings");
+					throw new TRPCError({ code: "BAD_REQUEST", message: "hostId and eventTypeId are required for individual bookings" });
 				}
 
 				const [et] = await ctx.db
@@ -290,34 +301,25 @@ export const bookingRouter = createTRPCRouter({
 					)
 					.limit(1);
 
-				if (!et) throw new Error("Invalid event type");
+				if (!et) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid event type" });
 
 				resolvedHostId = input.hostId;
 				eventTitle = et.title;
+				durationMinutes = et.durationMinutes;
 				resolvedEventTypeId = input.eventTypeId;
 			}
 
-			// Check for conflicting bookings for host
-			const conflicts = await ctx.db
-				.select({ id: booking.id })
-				.from(booking)
-				.where(
-					and(
-						eq(booking.hostId, resolvedHostId),
-						inArray(booking.status, [...ACTIVE_BOOKING_STATUSES]),
-						lt(booking.startTime, endTime),
-						gte(booking.endTime, startTime),
-					),
-				)
-				.limit(1);
-
-			if (conflicts.length > 0) {
-				throw new Error(
-					"This time slot is no longer available. Please choose another.",
-				);
+			// Validate duration matches event type
+			const expectedMs = durationMinutes * 60 * 1000;
+			const actualMs = endTime.getTime() - startTime.getTime();
+			if (actualMs !== expectedMs) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "Booking duration does not match event type duration",
+				});
 			}
 
-			// Check Google Calendar for conflicts (host)
+			// Check Google Calendar for conflicts (host) — outside transaction (external API)
 			const busyPeriods = await getGoogleCalendarBusyPeriods(
 				ctx.db,
 				resolvedHostId,
@@ -330,40 +332,65 @@ export const bookingRouter = createTRPCRouter({
 			);
 
 			if (hasCalendarConflict) {
-				throw new Error(
-					"This time slot is no longer available. Please choose another.",
-				);
+				throw new TRPCError({
+					code: "CONFLICT",
+					message: "This time slot is no longer available. Please choose another.",
+				});
 			}
 
-			// Insert booking
-			const [created] = await ctx.db
-				.insert(booking)
-				.values({
-					hostId: resolvedHostId,
-					eventTypeId: resolvedEventTypeId,
-					groupId: resolvedGroupId,
-					groupEventTypeId: resolvedGroupEventTypeId,
-					startTime,
-					endTime,
-					timezone: input.timezone,
-					guestName: input.guestName,
-					guestEmail: input.guestEmail,
-					guestNotes: input.guestNotes ?? null,
-					status: BookingStatus.PENDING,
-				})
-				.returning({ id: booking.id });
+			// Atomic: conflict check + insert inside a transaction to prevent double-booking
+			const bookingId = await ctx.db.transaction(async (tx) => {
+				const conflicts = await tx
+					.select({ id: booking.id })
+					.from(booking)
+					.where(
+						and(
+							eq(booking.hostId, resolvedHostId),
+							inArray(booking.status, [...ACTIVE_BOOKING_STATUSES]),
+							lt(booking.startTime, endTime),
+							gte(booking.endTime, startTime),
+						),
+					)
+					.limit(1);
 
-			const bookingId = created!.id;
+				if (conflicts.length > 0) {
+					throw new TRPCError({
+						code: "CONFLICT",
+						message: "This time slot is no longer available. Please choose another.",
+					});
+				}
 
-			// Insert booking attendees for group bookings
-			if (memberUserIds.length > 0) {
-				await ctx.db.insert(bookingAttendee).values(
-					memberUserIds.map((userId) => ({
-						bookingId,
-						userId,
-					})),
-				);
-			}
+				const [created] = await tx
+					.insert(booking)
+					.values({
+						hostId: resolvedHostId,
+						eventTypeId: resolvedEventTypeId,
+						groupId: resolvedGroupId,
+						groupEventTypeId: resolvedGroupEventTypeId,
+						startTime,
+						endTime,
+						timezone: input.timezone,
+						guestName: input.guestName,
+						guestEmail: input.guestEmail,
+						guestNotes: input.guestNotes ?? null,
+						status: BookingStatus.PENDING,
+					})
+					.returning({ id: booking.id });
+
+				const id = created!.id;
+
+				// Insert booking attendees for group bookings
+				if (memberUserIds.length > 0) {
+					await tx.insert(bookingAttendee).values(
+						memberUserIds.map((userId) => ({
+							bookingId: id,
+							userId,
+						})),
+					);
+				}
+
+				return id;
+			});
 
 			// Create Google Calendar event + Meet (if host has calendar connected)
 			try {

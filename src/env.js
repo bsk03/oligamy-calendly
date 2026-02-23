@@ -3,10 +3,7 @@ import { z } from 'zod';
 
 export const env = createEnv({
 	server: {
-		BETTER_AUTH_SECRET:
-			process.env.NODE_ENV === 'production'
-				? z.string()
-				: z.string().optional(),
+		BETTER_AUTH_SECRET: z.string().min(32),
 
 		DATABASE_URL: z.string().url(),
 		NODE_ENV: z
@@ -48,6 +45,6 @@ export const env = createEnv({
 		EMAIL_FROM: process.env.EMAIL_FROM,
 		NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
 	},
-	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	skipValidation: !!process.env.SKIP_ENV_VALIDATION && process.env.NODE_ENV !== 'production',
 	emptyStringAsUndefined: true,
 });

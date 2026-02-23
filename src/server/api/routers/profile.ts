@@ -6,6 +6,7 @@ import {
 	createTRPCRouter,
 	protectedProcedure,
 } from "@/server/api/trpc";
+import { timezoneSchema } from "@/server/lib/validators";
 import {
 	availability,
 	eventType,
@@ -64,7 +65,7 @@ export const profileRouter = createTRPCRouter({
 					.nullable()
 					.optional(),
 				bio: z.string().max(300).optional(),
-				timezone: z.string().min(1),
+				timezone: timezoneSchema,
 				isVisibleOnHome: z.boolean(),
 				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
 				bookingWindowDays: z.number().int().min(1).max(365).optional(),
@@ -234,7 +235,12 @@ export const profileRouter = createTRPCRouter({
 	}),
 
 	checkUsername: protectedProcedure
-		.input(z.object({ username: z.string().min(3).max(40) }))
+		.input(z.object({
+			username: z.string().min(3).max(40).regex(
+				/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+				"Only lowercase letters, numbers, and hyphens.",
+			),
+		}))
 		.query(async ({ ctx, input }) => {
 			const [existing] = await ctx.db
 				.select({ userId: profile.userId })
@@ -247,6 +253,15 @@ export const profileRouter = createTRPCRouter({
 				)
 				.limit(1);
 
-			return { available: !existing };
+			if (existing) return { available: false };
+
+			// Check conflict with group slugs
+			const [groupConflict] = await ctx.db
+				.select({ id: group.id })
+				.from(group)
+				.where(eq(group.slug, input.username))
+				.limit(1);
+
+			return { available: !groupConflict };
 		}),
 });

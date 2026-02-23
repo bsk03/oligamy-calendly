@@ -19,6 +19,11 @@ import { getAllUserTokens } from '@/server/lib/google-calendar-token';
 
 type Db = typeof DbType;
 
+const isDev = process.env.NODE_ENV !== 'production';
+const devLog = (...args: unknown[]) => { if (isDev) console.log(...args); };
+const devWarn = (...args: unknown[]) => { if (isDev) console.warn(...args); };
+const devError = (...args: unknown[]) => { if (isDev) console.error(...args); };
+
 type TimeRange = { startTime: string; endTime: string };
 
 type OverrideRow = {
@@ -488,7 +493,7 @@ export async function getGoogleCalendarBusyPeriods(
 ): Promise<{ start: Date; end: Date }[]> {
 	const logPrefix = '[Google Calendar]';
 	try {
-		console.log(logPrefix, 'Pobieranie zajętości', {
+		devLog(logPrefix, 'Pobieranie zajętości', {
 			userId,
 			timeMin: timeMin.toISOString(),
 			timeMax: timeMax.toISOString(),
@@ -497,7 +502,7 @@ export async function getGoogleCalendarBusyPeriods(
 		const tokens = await getAllUserTokens(db, userId);
 
 		if (tokens.length === 0) {
-			console.log(logPrefix, 'Brak tokenów dla użytkownika, pomijam kalendarz', {
+			devLog(logPrefix, 'Brak tokenów dla użytkownika, pomijam kalendarz', {
 				userId,
 			});
 			return [];
@@ -516,7 +521,7 @@ export async function getGoogleCalendarBusyPeriods(
 				const calendar = google.calendar({ version: 'v3', auth: oauth2 });
 				const calendarIds = token.busyCalendarIds;
 
-				console.log(logPrefix, 'Wywołanie FreeBusy API', {
+				devLog(logPrefix, 'Wywołanie FreeBusy API', {
 					userId,
 					accountEmail: token.accountEmail,
 					calendarIds,
@@ -536,7 +541,7 @@ export async function getGoogleCalendarBusyPeriods(
 						const cal = calendars[calId];
 
 						if (cal?.errors && cal.errors.length > 0) {
-							console.warn(logPrefix, `Calendar "${calId}" (${token.accountEmail}) returned errors, skipping:`, cal.errors);
+							devWarn(logPrefix, `Calendar "${calId}" (${token.accountEmail}) returned errors, skipping:`, cal.errors);
 							continue;
 						}
 
@@ -554,11 +559,11 @@ export async function getGoogleCalendarBusyPeriods(
 				}
 			} catch (err) {
 				// Graceful degradation: skip this account, continue with others
-				console.error(logPrefix, `Błąd FreeBusy dla konta ${token.accountEmail}:`, { userId, err });
+				devError(logPrefix, `Błąd FreeBusy dla konta ${token.accountEmail}:`, { userId, err });
 			}
 		}
 
-		console.log(logPrefix, 'Podsumowanie FreeBusy', {
+		devLog(logPrefix, 'Podsumowanie FreeBusy', {
 			userId,
 			accountCount: tokens.length,
 			busyPeriodsCount: allBusyPeriods.length,
@@ -566,7 +571,7 @@ export async function getGoogleCalendarBusyPeriods(
 
 		return allBusyPeriods;
 	} catch (err) {
-		console.error(logPrefix, 'Błąd FreeBusy:', { userId, err });
+		devError(logPrefix, 'Błąd FreeBusy:', { userId, err });
 		return [];
 	}
 }
@@ -678,16 +683,16 @@ export async function getGroupAvailableDatesForMonth(
 	month: number,
 ): Promise<string[]> {
 	const LOG = '[GroupDates]';
-	console.log(LOG, 'START', { groupEventTypeId, year, month });
+	devLog(LOG, 'START', { groupEventTypeId, year, month });
 
 	const info = await resolveGroupInfo(db, groupEventTypeId);
 	if (!info) {
-		console.log(LOG, 'resolveGroupInfo returned null — group/eventType not found or inactive');
+		devLog(LOG, 'resolveGroupInfo returned null — group/eventType not found or inactive');
 		return [];
 	}
 
 	const { allUserIds, eventConfig } = info;
-	console.log(LOG, 'Group info', {
+	devLog(LOG, 'Group info', {
 		allUserIds,
 		durationMinutes: eventConfig.durationMinutes,
 		minimumNoticeHours: eventConfig.minimumNoticeHours,
@@ -695,7 +700,7 @@ export async function getGroupAvailableDatesForMonth(
 
 	// Group-level timezone + booking window
 	const timezone = info.group.timezone ?? 'Europe/Warsaw';
-	console.log(LOG, 'Group settings', {
+	devLog(LOG, 'Group settings', {
 		timezone,
 		bookingWindowMode: info.group.bookingWindowMode,
 		bookingWindowDays: info.group.bookingWindowDays,
@@ -727,7 +732,7 @@ export async function getGroupAvailableDatesForMonth(
 
 	const weeklySlotMap = intersectWeeklySchedules(allMemberSlots);
 
-	console.log(LOG, 'Intersected weekly slots', Array.from(weeklySlotMap.entries()).map(([day, ranges]) =>
+	devLog(LOG, 'Intersected weekly slots', Array.from(weeklySlotMap.entries()).map(([day, ranges]) =>
 		`day${day}: ${ranges.map((r) => `${r.startTime}-${r.endTime}`).join(', ')}`,
 	));
 
@@ -750,7 +755,7 @@ export async function getGroupAvailableDatesForMonth(
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
 
-	console.log(LOG, 'Booking window', {
+	devLog(LOG, 'Booking window', {
 		now: now.toISOString(),
 		earliestBookable: earliestBookable.toISOString(),
 		maxBookableDate: maxBookableDate.toISOString(),
@@ -789,9 +794,9 @@ export async function getGroupAvailableDatesForMonth(
 		}
 	}
 
-	console.log(LOG, 'Candidate dates', candidates.length, 'Skipped', skippedDates.length);
+	devLog(LOG, 'Candidate dates', candidates.length, 'Skipped', skippedDates.length);
 	if (skippedDates.length > 0) {
-		console.log(LOG, 'Skipped dates (first 10):', skippedDates.slice(0, 10));
+		devLog(LOG, 'Skipped dates (first 10):', skippedDates.slice(0, 10));
 	}
 
 	if (candidates.length === 0) return [];
@@ -800,7 +805,7 @@ export async function getGroupAvailableDatesForMonth(
 	const rangeMin = candidates[0]!.windows[0]!.dayStart;
 	const rangeMax = candidates[candidates.length - 1]!.windows[candidates[candidates.length - 1]!.windows.length - 1]!.dayEnd;
 
-	console.log(LOG, 'Fetching busy periods for all users', {
+	devLog(LOG, 'Fetching busy periods for all users', {
 		allUserIds,
 		rangeMin: rangeMin.toISOString(),
 		rangeMax: rangeMax.toISOString(),
@@ -809,12 +814,12 @@ export async function getGroupAvailableDatesForMonth(
 	const allBusyArrays = await Promise.all(
 		allUserIds.map(async (uid) => {
 			const busy = await getUserBusyPeriods(db, uid, rangeMin, rangeMax);
-			console.log(LOG, `User ${uid} busy periods:`, busy.length, busy.slice(0, 5).map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
+			devLog(LOG, `User ${uid} busy periods:`, busy.length, busy.slice(0, 5).map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
 			return busy;
 		}),
 	);
 	const allBusy = allBusyArrays.flat();
-	console.log(LOG, 'Total busy periods (all members combined):', allBusy.length);
+	devLog(LOG, 'Total busy periods (all members combined):', allBusy.length);
 
 	// Check each candidate for at least one free slot
 	const dates: string[] = [];
@@ -850,7 +855,7 @@ export async function getGroupAvailableDatesForMonth(
 		}
 	}
 
-	console.log(LOG, 'RESULT — available dates:', dates.length, dates.slice(0, 10));
+	devLog(LOG, 'RESULT — available dates:', dates.length, dates.slice(0, 10));
 	return dates;
 }
 
@@ -864,23 +869,23 @@ export async function getGroupAvailableSlots(
 	dateString: string,
 ): Promise<{ start: string; end: string }[]> {
 	const LOG = '[GroupSlots]';
-	console.log(LOG, 'START', { groupEventTypeId, dateString });
+	devLog(LOG, 'START', { groupEventTypeId, dateString });
 
 	const info = await resolveGroupInfo(db, groupEventTypeId);
 	if (!info) {
-		console.log(LOG, 'resolveGroupInfo returned null');
+		devLog(LOG, 'resolveGroupInfo returned null');
 		return [];
 	}
 
 	const { allUserIds, eventConfig } = info;
-	console.log(LOG, 'Group info', { allUserIds, eventConfig });
+	devLog(LOG, 'Group info', { allUserIds, eventConfig });
 
 	// Group-level timezone
 	const timezone = info.group.timezone ?? 'Europe/Warsaw';
 
 	// Determine work windows from intersection of ALL members' schedules
 	const dayOfWeek = dayOfWeekFromDateStr(dateString);
-	console.log(LOG, 'Date info', { dateString, dayOfWeek, timezone });
+	devLog(LOG, 'Date info', { dateString, dayOfWeek, timezone });
 
 	// Fetch weekly availability for all members and intersect
 	const allMemberSlots = await Promise.all(
@@ -922,11 +927,11 @@ export async function getGroupAvailableSlots(
 	}
 
 	if (!workRanges || workRanges.length === 0) {
-		console.log(LOG, 'No intersected work ranges for this day');
+		devLog(LOG, 'No intersected work ranges for this day');
 		return [];
 	}
 
-	console.log(LOG, 'Intersected work ranges', workRanges);
+	devLog(LOG, 'Intersected work ranges', workRanges);
 
 	// Generate slots from all work ranges
 	const duration = eventConfig.durationMinutes;
@@ -944,7 +949,7 @@ export async function getGroupAvailableSlots(
 		}
 	}
 
-	console.log(LOG, 'Generated raw slots:', slots.length);
+	devLog(LOG, 'Generated raw slots:', slots.length);
 
 	// Filter by minimum notice + booking window
 	const now = new Date();
@@ -963,7 +968,7 @@ export async function getGroupAvailableSlots(
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
 
-	console.log(LOG, 'Filtering', {
+	devLog(LOG, 'Filtering', {
 		now: now.toISOString(),
 		earliestBookable: earliestBookable.toISOString(),
 		maxBookableDate: maxBookableDate.toISOString(),
@@ -972,7 +977,7 @@ export async function getGroupAvailableSlots(
 	const filteredSlots = slots.filter(
 		(s) => s.start >= earliestBookable && s.start <= maxBookableDate,
 	);
-	console.log(LOG, 'After time filter:', filteredSlots.length, '(from', slots.length, ')');
+	devLog(LOG, 'After time filter:', filteredSlots.length, '(from', slots.length, ')');
 	if (filteredSlots.length === 0) return [];
 
 	// Get busy periods from ALL members
@@ -982,12 +987,12 @@ export async function getGroupAvailableSlots(
 	const allBusyArrays = await Promise.all(
 		allUserIds.map(async (uid) => {
 			const busy = await getUserBusyPeriods(db, uid, timeMin, timeMax);
-			console.log(LOG, `User ${uid} busy:`, busy.length, busy.map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
+			devLog(LOG, `User ${uid} busy:`, busy.length, busy.map((b) => `${b.start.toISOString()} - ${b.end.toISOString()}`));
 			return busy;
 		}),
 	);
 	const allBusy = allBusyArrays.flat();
-	console.log(LOG, 'Total busy periods:', allBusy.length);
+	devLog(LOG, 'Total busy periods:', allBusy.length);
 
 	// Filter out slots that conflict with any member's busy time
 	const availableSlots = filteredSlots.filter((slot) => {
@@ -996,7 +1001,7 @@ export async function getGroupAvailableSlots(
 		);
 	});
 
-	console.log(LOG, 'RESULT — available slots:', availableSlots.length, '(from', filteredSlots.length, 'filtered)');
+	devLog(LOG, 'RESULT — available slots:', availableSlots.length, '(from', filteredSlots.length, 'filtered)');
 
 	return availableSlots.map((s) => ({
 		start: s.start.toISOString(),

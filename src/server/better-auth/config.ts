@@ -6,8 +6,9 @@ import { db } from "@/server/db";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 const trustedOrigins = [
-	"http://localhost:3000",
-	"http://127.0.0.1:3000",
+	...(process.env.NODE_ENV !== "production"
+		? ["http://localhost:3000", "http://127.0.0.1:3000"]
+		: []),
 	...(appUrl ? [appUrl] : []),
 ];
 
@@ -18,6 +19,12 @@ export const auth = betterAuth({
 	}),
 	emailAndPassword: {
 		enabled: true,
+	},
+	session: {
+		cookieCache: {
+			enabled: true,
+			maxAge: 5 * 60, // 5 minutes
+		},
 	},
 	plugins: [
 		admin({

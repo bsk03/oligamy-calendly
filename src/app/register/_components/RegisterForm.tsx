@@ -21,7 +21,11 @@ const registerSchema = z
 			.max(100, "Name is too long"),
 		password: z
 			.string()
-			.min(8, "Password must be at least 8 characters"),
+			.min(8, "Password must be at least 8 characters")
+			.regex(
+				/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+				"Must contain uppercase, lowercase, and a digit",
+			),
 		confirmPassword: z.string(),
 	})
 	.refine((data) => data.password === data.confirmPassword, {

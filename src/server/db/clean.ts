@@ -19,6 +19,11 @@ import {
 } from "@/server/db/schema";
 
 async function clean() {
+	if (process.env.NODE_ENV === "production") {
+		console.error("db:clean is disabled in production. Aborting.");
+		process.exit(1);
+	}
+
 	console.log("Starting database cleanup (keeping admin account)...\n");
 
 	// Find admin user(s)

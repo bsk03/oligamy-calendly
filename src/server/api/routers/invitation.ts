@@ -9,6 +9,7 @@ import {
 } from "@/server/api/trpc";
 import { InvitationStatus, invitation, profile, user } from "@/server/db/schema";
 import { sendInvitationEmail } from "@/server/lib/email";
+import { timezoneSchema } from "@/server/lib/validators";
 import { auth } from "@/server/better-auth";
 
 export const invitationRouter = createTRPCRouter({
@@ -96,24 +97,14 @@ export const invitationRouter = createTRPCRouter({
 				.where(eq(invitation.token, input.token))
 				.limit(1);
 
-			if (!inv) {
+			if (
+				!inv ||
+				inv.status !== InvitationStatus.PENDING ||
+				new Date() > inv.expiresAt
+			) {
 				throw new TRPCError({
 					code: "NOT_FOUND",
-					message: "Invalid invitation link.",
-				});
-			}
-
-			if (inv.status !== InvitationStatus.PENDING) {
-				throw new TRPCError({
-					code: "BAD_REQUEST",
-					message: "This invitation has already been used.",
-				});
-			}
-
-			if (new Date() > inv.expiresAt) {
-				throw new TRPCError({
-					code: "BAD_REQUEST",
-					message: "This invitation has expired.",
+					message: "Invalid or expired invitation.",
 				});
 			}
 
@@ -126,18 +117,28 @@ export const invitationRouter = createTRPCRouter({
 			z.object({
 				token: z.string(),
 				name: z.string().min(1).max(100),
-				password: z.string().min(8),
-				timezone: z.string().min(1).optional(),
+				password: z.string().min(8).regex(
+				/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+				"Password must contain at least one uppercase letter, one lowercase letter, and one digit.",
+			),
+				timezone: timezoneSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			// Atomically claim the invitation — prevents race condition with concurrent requests
 			const [inv] = await ctx.db
-				.select()
-				.from(invitation)
-				.where(eq(invitation.token, input.token))
-				.limit(1);
+				.update(invitation)
+				.set({ status: InvitationStatus.ACCEPTED })
+				.where(
+					and(
+						eq(invitation.token, input.token),
+						eq(invitation.status, InvitationStatus.PENDING),
+						gt(invitation.expiresAt, new Date()),
+					),
+				)
+				.returning();
 
-			if (!inv || inv.status !== InvitationStatus.PENDING || new Date() > inv.expiresAt) {
+			if (!inv) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
 					message: "Invalid or expired invitation.",
@@ -173,11 +174,6 @@ export const invitationRouter = createTRPCRouter({
 					timezone: input.timezone ?? "Europe/Warsaw",
 				}).onConflictDoNothing();
 			}
-
-			await ctx.db
-				.update(invitation)
-				.set({ status: "ACCEPTED" })
-				.where(eq(invitation.id, inv.id));
 
 			return { email: inv.email };
 		}),
