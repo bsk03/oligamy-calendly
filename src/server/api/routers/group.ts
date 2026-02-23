@@ -129,6 +129,10 @@ export const groupRouter = createTRPCRouter({
 					.regex(slugRegex, "Only lowercase letters, numbers, and hyphens."),
 				description: z.string().max(500).optional(),
 				hostUserId: z.string(),
+				timezone: z.string().min(1).optional(),
+				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
+				bookingWindowDays: z.number().int().min(1).max(365).optional(),
+				bookingWindowEndDate: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -186,6 +190,16 @@ export const groupRouter = createTRPCRouter({
 					description: input.description ?? null,
 					hostUserId: input.hostUserId,
 					createdBy: ctx.session.user.id,
+					...(input.timezone ? { timezone: input.timezone } : {}),
+					...(input.bookingWindowMode
+						? { bookingWindowMode: input.bookingWindowMode }
+						: {}),
+					...(input.bookingWindowDays !== undefined
+						? { bookingWindowDays: input.bookingWindowDays }
+						: {}),
+					...(input.bookingWindowEndDate !== undefined
+						? { bookingWindowEndDate: input.bookingWindowEndDate }
+						: {}),
 				})
 				.returning();
 
@@ -207,6 +221,10 @@ export const groupRouter = createTRPCRouter({
 				description: z.string().max(500).nullable().optional(),
 				hostUserId: z.string().optional(),
 				isActive: z.boolean().optional(),
+				timezone: z.string().min(1).optional(),
+				bookingWindowMode: z.enum(["relative", "absolute"]).optional(),
+				bookingWindowDays: z.number().int().min(1).max(365).optional(),
+				bookingWindowEndDate: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -484,6 +502,10 @@ export const groupRouter = createTRPCRouter({
 				name: g.name,
 				slug: g.slug,
 				description: g.description,
+				timezone: g.timezone,
+				bookingWindowMode: g.bookingWindowMode,
+				bookingWindowDays: g.bookingWindowDays,
+				bookingWindowEndDate: g.bookingWindowEndDate,
 				host: host ?? null,
 				members,
 				eventTypes,

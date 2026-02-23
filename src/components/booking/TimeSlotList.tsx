@@ -57,7 +57,6 @@ export function TimeSlotList({
 }: TimeSlotListProps) {
 	const { t, intlLocale } = useTranslation();
 	const is24h = timeFormat === "24h";
-	const isFillingUp = slots.length > 0 && slots.length <= 3;
 
 	if (isLoading) {
 		return (
@@ -76,7 +75,7 @@ export function TimeSlotList({
 	}
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3">
+		<div className="flex h-full min-h-0 flex-col gap-3">
 			{/* Header: formatted date + 12h/24h toggle */}
 			<div className="flex shrink-0 items-center justify-between gap-2">
 				<h3 className="text-sm font-semibold">
@@ -139,9 +138,7 @@ export function TimeSlotList({
 											"size-2 shrink-0 rounded-full",
 											isSelected
 												? "bg-white"
-												: isFillingUp
-													? "bg-orange-400"
-													: "bg-emerald-400",
+												: "bg-emerald-400",
 										)}
 									/>
 									{formatTime(slot.start, is24h, timezone, intlLocale)}

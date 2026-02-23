@@ -7,7 +7,7 @@ import {
 	protectedProcedure,
 	publicProcedure,
 } from "@/server/api/trpc";
-import { InvitationStatus, invitation, user } from "@/server/db/schema";
+import { InvitationStatus, invitation, profile, user } from "@/server/db/schema";
 import { sendInvitationEmail } from "@/server/lib/email";
 import { auth } from "@/server/better-auth";
 
@@ -127,6 +127,7 @@ export const invitationRouter = createTRPCRouter({
 				token: z.string(),
 				name: z.string().min(1).max(100),
 				password: z.string().min(8),
+				timezone: z.string().min(1).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -157,6 +158,20 @@ export const invitationRouter = createTRPCRouter({
 					.update(user)
 					.set({ role: inv.role })
 					.where(eq(user.email, inv.email));
+			}
+
+			// Create profile with browser timezone
+			const [newUser] = await ctx.db
+				.select({ id: user.id })
+				.from(user)
+				.where(eq(user.email, inv.email))
+				.limit(1);
+
+			if (newUser) {
+				await ctx.db.insert(profile).values({
+					userId: newUser.id,
+					timezone: input.timezone ?? "Europe/Warsaw",
+				}).onConflictDoNothing();
 			}
 
 			await ctx.db

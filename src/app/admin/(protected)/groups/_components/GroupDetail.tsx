@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
@@ -53,6 +54,10 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 	const [editSlug, setEditSlug] = useState("");
 	const [editDescription, setEditDescription] = useState("");
 	const [editHostUserId, setEditHostUserId] = useState("");
+	const [editTimezone, setEditTimezone] = useState("Europe/Warsaw");
+	const [editBookingWindowMode, setEditBookingWindowMode] = useState<"relative" | "absolute">("relative");
+	const [editBookingWindowDays, setEditBookingWindowDays] = useState(30);
+	const [editBookingWindowEndDate, setEditBookingWindowEndDate] = useState("");
 
 	const newEtForm = useForm<NewEventTypeForm>({
 		resolver: zodResolver(newEventTypeSchema),
@@ -135,6 +140,10 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 		setEditSlug(group.slug);
 		setEditDescription(group.description ?? "");
 		setEditHostUserId(group.hostUserId);
+		setEditTimezone(group.timezone ?? "Europe/Warsaw");
+		setEditBookingWindowMode((group.bookingWindowMode as "relative" | "absolute") ?? "relative");
+		setEditBookingWindowDays(group.bookingWindowDays ?? 30);
+		setEditBookingWindowEndDate(group.bookingWindowEndDate ?? "");
 		setEditing(true);
 	}
 
@@ -145,6 +154,10 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 			slug: editSlug.trim(),
 			description: editDescription.trim() || null,
 			hostUserId: editHostUserId,
+			timezone: editTimezone,
+			bookingWindowMode: editBookingWindowMode,
+			bookingWindowDays: editBookingWindowMode === "relative" ? editBookingWindowDays : undefined,
+			bookingWindowEndDate: editBookingWindowMode === "absolute" && editBookingWindowEndDate ? editBookingWindowEndDate : null,
 		});
 	}
 
@@ -255,6 +268,48 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 								</SelectContent>
 							</Select>
 						</div>
+						<div className="grid gap-1.5">
+							<Label className="text-xs">Timezone</Label>
+							<TimezoneCombobox
+								value={editTimezone}
+								onChange={setEditTimezone}
+							/>
+						</div>
+						<div className="grid gap-1.5">
+							<Label className="text-xs">Booking Window</Label>
+							<Select
+								value={editBookingWindowMode}
+								onValueChange={(v) => setEditBookingWindowMode(v as "relative" | "absolute")}
+							>
+								<SelectTrigger className="h-8 text-sm">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="relative">Relative (days)</SelectItem>
+									<SelectItem value="absolute">Absolute (end date)</SelectItem>
+								</SelectContent>
+							</Select>
+							{editBookingWindowMode === "relative" ? (
+								<div className="flex items-center gap-2">
+									<Input
+										type="number"
+										min={1}
+										max={365}
+										value={editBookingWindowDays}
+										onChange={(e) => setEditBookingWindowDays(Number(e.target.value))}
+										className="h-8 text-sm w-24"
+									/>
+									<span className="text-xs text-muted-foreground">days</span>
+								</div>
+							) : (
+								<Input
+									type="date"
+									value={editBookingWindowEndDate}
+									onChange={(e) => setEditBookingWindowEndDate(e.target.value)}
+									className="h-8 text-sm"
+								/>
+							)}
+						</div>
 					</div>
 				) : (
 					<div className="text-sm text-muted-foreground space-y-1">
@@ -266,6 +321,20 @@ export function GroupDetail({ groupId }: GroupDetailProps) {
 							Active:{" "}
 							<span className="font-medium text-foreground">
 								{group.isActive ? "Yes" : "No"}
+							</span>
+						</p>
+						<p>
+							Timezone:{" "}
+							<span className="font-medium text-foreground">
+								{(group.timezone ?? "Europe/Warsaw").replace(/_/g, " ")}
+							</span>
+						</p>
+						<p>
+							Booking window:{" "}
+							<span className="font-medium text-foreground">
+								{group.bookingWindowMode === "absolute" && group.bookingWindowEndDate
+									? `Until ${group.bookingWindowEndDate}`
+									: `${group.bookingWindowDays ?? 30} days`}
 							</span>
 						</p>
 					</div>

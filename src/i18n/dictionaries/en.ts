@@ -1,6 +1,9 @@
 import type { Dictionary } from "../types";
 
 export const en: Dictionary = {
+	bookingPage: {
+		title: "Book a meeting",
+	},
 	bookingCalendar: {
 		dayLabels: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"],
 	},

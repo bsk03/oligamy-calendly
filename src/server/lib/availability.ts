@@ -36,6 +36,70 @@ type AvailSlot = {
 };
 
 /**
+ * Intersects two sets of time ranges (using "HH:MM" string comparison).
+ * Returns the overlapping portions, or empty array if no overlap.
+ */
+function intersectRangeSets(
+	setA: TimeRange[],
+	setB: TimeRange[],
+): TimeRange[] {
+	const result: TimeRange[] = [];
+	for (const a of setA) {
+		for (const b of setB) {
+			const start = a.startTime > b.startTime ? a.startTime : b.startTime;
+			const end = a.endTime < b.endTime ? a.endTime : b.endTime;
+			if (start < end) {
+				result.push({ startTime: start, endTime: end });
+			}
+		}
+	}
+	return result;
+}
+
+/**
+ * Given weekly availability for multiple users, returns the intersection
+ * of all their schedules for each day of the week (0-6).
+ * If ANY user has no availability on a given day, that day has no ranges.
+ */
+function intersectWeeklySchedules(
+	allUsersSlots: Map<number, TimeRange[]>[],
+): Map<number, TimeRange[]> {
+	if (allUsersSlots.length === 0) return new Map();
+	if (allUsersSlots.length === 1) return allUsersSlots[0]!;
+
+	const result = new Map<number, TimeRange[]>();
+
+	for (let day = 0; day <= 6; day++) {
+		let current: TimeRange[] | null = null;
+
+		for (const userSlots of allUsersSlots) {
+			const dayRanges = userSlots.get(day);
+			if (!dayRanges || dayRanges.length === 0) {
+				// This user has no availability on this day — intersection is empty
+				current = null;
+				break;
+			}
+
+			if (current === null) {
+				current = dayRanges;
+			} else {
+				current = intersectRangeSets(current, dayRanges);
+				if (current.length === 0) {
+					current = null;
+					break;
+				}
+			}
+		}
+
+		if (current && current.length > 0) {
+			result.set(day, current);
+		}
+	}
+
+	return result;
+}
+
+/**
  * Collects work windows for a specific day, checking overrides first then weekly schedule.
  * Returns null if day is unavailable, or an array of {startTime, endTime} ranges.
  */
@@ -90,13 +154,8 @@ function generateCandidatesForDay(
 ): { dayStart: Date; dayEnd: Date }[] {
 	const candidates: { dayStart: Date; dayEnd: Date }[] = [];
 	for (const range of ranges) {
-		const [sh, sm] = range.startTime.split(':').map(Number) as [number, number];
-		const [eh, em] = range.endTime.split(':').map(Number) as [number, number];
-
-		const dayStart = parseLocalDate(dateStr, timezone);
-		dayStart.setHours(sh, sm, 0, 0);
-		const dayEnd = parseLocalDate(dateStr, timezone);
-		dayEnd.setHours(eh, em, 0, 0);
+		const dayStart = localToUTC(dateStr, range.startTime, timezone);
+		const dayEnd = localToUTC(dateStr, range.endTime, timezone);
 
 		candidates.push({ dayStart, dayEnd });
 	}
@@ -174,11 +233,7 @@ export async function getAvailableDatesForMonth(
 		userProfile?.bookingWindowMode === 'absolute' &&
 		userProfile.bookingWindowEndDate
 	) {
-		maxBookableDate = parseLocalDate(
-			userProfile.bookingWindowEndDate,
-			timezone,
-		);
-		maxBookableDate.setHours(23, 59, 59, 999);
+		maxBookableDate = endOfDayUTC(userProfile.bookingWindowEndDate, timezone);
 	} else {
 		const windowDays = userProfile?.bookingWindowDays ?? 30;
 		maxBookableDate = new Date();
@@ -191,14 +246,13 @@ export async function getAvailableDatesForMonth(
 
 	for (let day = 1; day <= daysInMonth; day++) {
 		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-		const dateObj = parseLocalDate(dateStr, timezone);
 
-		const endOfDay = new Date(dateObj);
-		endOfDay.setHours(23, 59, 59, 999);
-		if (endOfDay < earliestBookable) continue;
-		if (dateObj > maxBookableDate) continue;
+		const eod = endOfDayUTC(dateStr, timezone);
+		if (eod < earliestBookable) continue;
+		const dayMidnight = localToUTC(dateStr, '00:00', timezone);
+		if (dayMidnight > maxBookableDate) continue;
 
-		const dayOfWeek = dateObj.getDay();
+		const dayOfWeek = dayOfWeekFromDateStr(dateStr);
 		const ranges = getWorkWindows(overrideMap, weeklySlotMap, dateStr, dayOfWeek);
 		if (!ranges) continue;
 
@@ -300,8 +354,7 @@ export async function getAvailableSlots(
 	const timezone = userProfile?.timezone ?? 'Europe/Warsaw';
 
 	// 3. Determine work windows for this date
-	const dateObj = parseLocalDate(dateString, timezone);
-	const dayOfWeek = dateObj.getDay();
+	const dayOfWeek = dayOfWeekFromDateStr(dateString);
 
 	// Check overrides for this date
 	const overridesForDate = await db
@@ -345,14 +398,8 @@ export async function getAvailableSlots(
 	const slots: { start: Date; end: Date }[] = [];
 
 	for (const range of workRanges) {
-		const [startHour, startMin] = range.startTime.split(':').map(Number) as [number, number];
-		const [endHour, endMin] = range.endTime.split(':').map(Number) as [number, number];
-
-		const dayStart = parseLocalDate(dateString, timezone);
-		dayStart.setHours(startHour, startMin, 0, 0);
-
-		const dayEnd = parseLocalDate(dateString, timezone);
-		dayEnd.setHours(endHour, endMin, 0, 0);
+		const dayStart = localToUTC(dateString, range.startTime, timezone);
+		const dayEnd = localToUTC(dateString, range.endTime, timezone);
 
 		let cursor = new Date(dayStart);
 		while (cursor.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
@@ -372,11 +419,7 @@ export async function getAvailableSlots(
 		userProfile?.bookingWindowMode === 'absolute' &&
 		userProfile.bookingWindowEndDate
 	) {
-		maxBookableDate = parseLocalDate(
-			userProfile.bookingWindowEndDate,
-			timezone,
-		);
-		maxBookableDate.setHours(23, 59, 59, 999);
+		maxBookableDate = endOfDayUTC(userProfile.bookingWindowEndDate, timezone);
 	} else {
 		const windowDays = userProfile?.bookingWindowDays ?? 30;
 		maxBookableDate = new Date();
@@ -643,61 +686,52 @@ export async function getGroupAvailableDatesForMonth(
 		return [];
 	}
 
-	const { hostUserId, allUserIds, eventConfig } = info;
+	const { allUserIds, eventConfig } = info;
 	console.log(LOG, 'Group info', {
-		hostUserId,
 		allUserIds,
 		durationMinutes: eventConfig.durationMinutes,
 		minimumNoticeHours: eventConfig.minimumNoticeHours,
 	});
 
-	// Host profile for timezone + booking window
-	const [hostProfile] = await db
-		.select()
-		.from(profile)
-		.where(eq(profile.userId, hostUserId))
-		.limit(1);
-
-	const timezone = hostProfile?.timezone ?? 'Europe/Warsaw';
-	console.log(LOG, 'Host profile', {
-		hasProfile: !!hostProfile,
+	// Group-level timezone + booking window
+	const timezone = info.group.timezone ?? 'Europe/Warsaw';
+	console.log(LOG, 'Group settings', {
 		timezone,
-		bookingWindowMode: hostProfile?.bookingWindowMode,
-		bookingWindowDays: hostProfile?.bookingWindowDays,
-		bookingWindowEndDate: hostProfile?.bookingWindowEndDate,
+		bookingWindowMode: info.group.bookingWindowMode,
+		bookingWindowDays: info.group.bookingWindowDays,
+		bookingWindowEndDate: info.group.bookingWindowEndDate,
 	});
 
-	// Host weekly availability (work window)
-	const weeklySlots = await db
-		.select()
-		.from(availability)
-		.where(
-			and(eq(availability.userId, hostUserId), eq(availability.isAvailable, true)),
-		);
+	// Fetch weekly availability for ALL members, then intersect
+	const allMemberSlots = await Promise.all(
+		allUserIds.map(async (uid) => {
+			const slots = await db
+				.select()
+				.from(availability)
+				.where(
+					and(eq(availability.userId, uid), eq(availability.isAvailable, true)),
+				);
+			const slotMap = new Map<number, TimeRange[]>();
+			for (const s of slots) {
+				const existing = slotMap.get(s.dayOfWeek);
+				const range = { startTime: s.startTime, endTime: s.endTime };
+				if (existing) {
+					existing.push(range);
+				} else {
+					slotMap.set(s.dayOfWeek, [range]);
+				}
+			}
+			return slotMap;
+		}),
+	);
 
-	console.log(LOG, 'Host weekly slots', weeklySlots.map((s) => `day${s.dayOfWeek}: ${s.startTime}-${s.endTime}`));
+	const weeklySlotMap = intersectWeeklySchedules(allMemberSlots);
 
-	// Host overrides for this month
+	console.log(LOG, 'Intersected weekly slots', Array.from(weeklySlotMap.entries()).map(([day, ranges]) =>
+		`day${day}: ${ranges.map((r) => `${r.startTime}-${r.endTime}`).join(', ')}`,
+	));
+
 	const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
-	const nextMonth = month === 12 ? 1 : month + 1;
-	const nextYear = month === 12 ? year + 1 : year;
-	const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-
-	const overrides = await db
-		.select()
-		.from(availabilityOverride)
-		.where(
-			and(
-				eq(availabilityOverride.userId, hostUserId),
-				gte(availabilityOverride.date, monthStart),
-				lt(availabilityOverride.date, monthEnd),
-			),
-		);
-
-	console.log(LOG, 'Host overrides for month', overrides.length);
-
-	const overrideMap = groupBy(overrides, (o) => o.date);
-	const weeklySlotMap = groupBy(weeklySlots, (s) => s.dayOfWeek);
 
 	const now = new Date();
 	const duration = eventConfig.durationMinutes;
@@ -706,13 +740,12 @@ export async function getGroupAvailableDatesForMonth(
 
 	let maxBookableDate: Date;
 	if (
-		hostProfile?.bookingWindowMode === 'absolute' &&
-		hostProfile.bookingWindowEndDate
+		info.group.bookingWindowMode === 'absolute' &&
+		info.group.bookingWindowEndDate
 	) {
-		maxBookableDate = parseLocalDate(hostProfile.bookingWindowEndDate, timezone);
-		maxBookableDate.setHours(23, 59, 59, 999);
+		maxBookableDate = endOfDayUTC(info.group.bookingWindowEndDate, timezone);
 	} else {
-		const windowDays = hostProfile?.bookingWindowDays ?? 30;
+		const windowDays = info.group.bookingWindowDays ?? 30;
 		maxBookableDate = new Date();
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
@@ -723,30 +756,28 @@ export async function getGroupAvailableDatesForMonth(
 		maxBookableDate: maxBookableDate.toISOString(),
 	});
 
-	// Collect candidate dates from host's work windows
+	// Collect candidate dates from intersected work windows
 	const daysInMonth = new Date(year, month, 0).getDate();
 	const candidates: { dateStr: string; windows: { dayStart: Date; dayEnd: Date }[] }[] = [];
 	const skippedDates: { dateStr: string; reason: string }[] = [];
 
 	for (let day = 1; day <= daysInMonth; day++) {
 		const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-		const dateObj = parseLocalDate(dateStr, timezone);
-
-		const endOfDay = new Date(dateObj);
-		endOfDay.setHours(23, 59, 59, 999);
-		if (endOfDay < earliestBookable) {
+		const eod = endOfDayUTC(dateStr, timezone);
+		if (eod < earliestBookable) {
 			skippedDates.push({ dateStr, reason: 'before earliestBookable' });
 			continue;
 		}
-		if (dateObj > maxBookableDate) {
+		const dayMidnight = localToUTC(dateStr, '00:00', timezone);
+		if (dayMidnight > maxBookableDate) {
 			skippedDates.push({ dateStr, reason: 'after maxBookableDate' });
 			continue;
 		}
 
-		const dayOfWeek = dateObj.getDay();
-		const ranges = getWorkWindows(overrideMap, weeklySlotMap, dateStr, dayOfWeek);
-		if (!ranges) {
-			skippedDates.push({ dateStr, reason: `no work windows for dayOfWeek=${dayOfWeek}` });
+		const dayOfWeek = dayOfWeekFromDateStr(dateStr);
+		const ranges = weeklySlotMap.get(dayOfWeek);
+		if (!ranges || ranges.length === 0) {
+			skippedDates.push({ dateStr, reason: `no intersected work windows for dayOfWeek=${dayOfWeek}` });
 			continue;
 		}
 
@@ -841,84 +872,69 @@ export async function getGroupAvailableSlots(
 		return [];
 	}
 
-	const { hostUserId, allUserIds, eventConfig } = info;
-	console.log(LOG, 'Group info', { hostUserId, allUserIds, eventConfig });
+	const { allUserIds, eventConfig } = info;
+	console.log(LOG, 'Group info', { allUserIds, eventConfig });
 
-	// Host profile
-	const [hostProfile] = await db
-		.select()
-		.from(profile)
-		.where(eq(profile.userId, hostUserId))
-		.limit(1);
+	// Group-level timezone
+	const timezone = info.group.timezone ?? 'Europe/Warsaw';
 
-	const timezone = hostProfile?.timezone ?? 'Europe/Warsaw';
-
-	// Determine work windows for this date from host's schedule
-	const dateObj = parseLocalDate(dateString, timezone);
-	const dayOfWeek = dateObj.getDay();
+	// Determine work windows from intersection of ALL members' schedules
+	const dayOfWeek = dayOfWeekFromDateStr(dateString);
 	console.log(LOG, 'Date info', { dateString, dayOfWeek, timezone });
 
-	// Check overrides for this date (host)
-	const overridesForDate = await db
-		.select()
-		.from(availabilityOverride)
-		.where(
-			and(
-				eq(availabilityOverride.userId, hostUserId),
-				eq(availabilityOverride.date, dateString),
-			),
-		);
+	// Fetch weekly availability for all members and intersect
+	const allMemberSlots = await Promise.all(
+		allUserIds.map(async (uid) => {
+			const slots = await db
+				.select()
+				.from(availability)
+				.where(
+					and(
+						eq(availability.userId, uid),
+						eq(availability.dayOfWeek, dayOfWeek),
+						eq(availability.isAvailable, true),
+					),
+				);
+			const ranges: TimeRange[] = slots.map((s) => ({
+				startTime: s.startTime,
+				endTime: s.endTime,
+			}));
+			return ranges;
+		}),
+	);
 
-	let workRanges: TimeRange[];
-
-	if (overridesForDate.length > 0) {
-		console.log(LOG, 'Override found for date', overridesForDate);
-		if (overridesForDate.some((o) => !o.isAvailable)) {
-			console.log(LOG, 'Override marks day as unavailable');
-			return [];
+	// Intersect all members' ranges for this day
+	let workRanges: TimeRange[] | null = null;
+	for (const memberRanges of allMemberSlots) {
+		if (memberRanges.length === 0) {
+			workRanges = null;
+			break;
 		}
-		workRanges = overridesForDate
-			.filter((o) => o.startTime && o.endTime)
-			.map((o) => ({ startTime: o.startTime!, endTime: o.endTime! }));
-		if (workRanges.length === 0) {
-			console.log(LOG, 'Override has no time ranges');
-			return [];
+		if (workRanges === null) {
+			workRanges = memberRanges;
+		} else {
+			workRanges = intersectRangeSets(workRanges, memberRanges);
+			if (workRanges.length === 0) {
+				workRanges = null;
+				break;
+			}
 		}
-	} else {
-		const weeklySlots = await db
-			.select()
-			.from(availability)
-			.where(
-				and(
-					eq(availability.userId, hostUserId),
-					eq(availability.dayOfWeek, dayOfWeek),
-					eq(availability.isAvailable, true),
-				),
-			);
-
-		console.log(LOG, `Weekly slots for dayOfWeek=${dayOfWeek}:`, weeklySlots.map((s) => `${s.startTime}-${s.endTime}`));
-		if (weeklySlots.length === 0) {
-			console.log(LOG, 'No weekly slots for this day');
-			return [];
-		}
-		workRanges = weeklySlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }));
 	}
 
-	console.log(LOG, 'Work ranges', workRanges);
+	if (!workRanges || workRanges.length === 0) {
+		console.log(LOG, 'No intersected work ranges for this day');
+		return [];
+	}
+
+	console.log(LOG, 'Intersected work ranges', workRanges);
 
 	// Generate slots from all work ranges
 	const duration = eventConfig.durationMinutes;
 	const slots: { start: Date; end: Date }[] = [];
 
 	for (const range of workRanges) {
-		const [startHour, startMin] = range.startTime.split(':').map(Number) as [number, number];
-		const [endHour, endMin] = range.endTime.split(':').map(Number) as [number, number];
-
-		const dayStart = parseLocalDate(dateString, timezone);
-		dayStart.setHours(startHour, startMin, 0, 0);
-
-		const dayEnd = parseLocalDate(dateString, timezone);
-		dayEnd.setHours(endHour, endMin, 0, 0);
+		const dayStart = localToUTC(dateString, range.startTime, timezone);
+		const dayEnd = localToUTC(dateString, range.endTime, timezone);
 
 		let cursor = new Date(dayStart);
 		while (cursor.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
@@ -937,13 +953,12 @@ export async function getGroupAvailableSlots(
 
 	let maxBookableDate: Date;
 	if (
-		hostProfile?.bookingWindowMode === 'absolute' &&
-		hostProfile.bookingWindowEndDate
+		info.group.bookingWindowMode === 'absolute' &&
+		info.group.bookingWindowEndDate
 	) {
-		maxBookableDate = parseLocalDate(hostProfile.bookingWindowEndDate, timezone);
-		maxBookableDate.setHours(23, 59, 59, 999);
+		maxBookableDate = endOfDayUTC(info.group.bookingWindowEndDate, timezone);
 	} else {
-		const windowDays = hostProfile?.bookingWindowDays ?? 30;
+		const windowDays = info.group.bookingWindowDays ?? 30;
 		maxBookableDate = new Date();
 		maxBookableDate.setDate(maxBookableDate.getDate() + windowDays);
 	}
@@ -990,14 +1005,75 @@ export async function getGroupAvailableSlots(
 }
 
 /**
- * Parses a "YYYY-MM-DD" string into a Date at midnight in the given timezone.
- * Simple approach: we create a date from the string parts which gives us local midnight.
+ * Returns the UTC offset in milliseconds for a given timezone at a given UTC moment.
+ * Positive means the timezone is ahead of UTC (e.g., +7200000 for UTC+2).
  */
-function parseLocalDate(dateStr: string, _timezone: string): Date {
-	const [year, month, day] = dateStr.split('-').map(Number) as [
-		number,
-		number,
-		number,
-	];
-	return new Date(year, month - 1, day);
+function getTimezoneOffsetMs(utcDate: Date, timezone: string): number {
+	const formatter = new Intl.DateTimeFormat('en-US', {
+		timeZone: timezone,
+		year: 'numeric',
+		month: 'numeric',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: 'numeric',
+		second: 'numeric',
+		hour12: false,
+	});
+	const parts = formatter.formatToParts(utcDate);
+	const get = (type: Intl.DateTimeFormatPartTypes) =>
+		parseInt(parts.find((p) => p.type === type)!.value);
+
+	let hour = get('hour');
+	if (hour === 24) hour = 0;
+
+	const localAsUtcMs = Date.UTC(
+		get('year'),
+		get('month') - 1,
+		get('day'),
+		hour,
+		get('minute'),
+		get('second'),
+	);
+
+	return localAsUtcMs - utcDate.getTime();
+}
+
+/**
+ * Converts a local date + time in a timezone to a UTC Date object.
+ * E.g., localToUTC("2024-03-15", "09:00", "Europe/Warsaw") returns a Date
+ * representing 2024-03-15 09:00 Warsaw time expressed in UTC.
+ */
+function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
+	const [year, month, day] = dateStr.split('-').map(Number) as [number, number, number];
+	const [hour, minute] = timeStr.split(':').map(Number) as [number, number];
+
+	const localAsUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+
+	const offset1 = getTimezoneOffsetMs(new Date(localAsUtcMs), timezone);
+	const adjusted = localAsUtcMs - offset1;
+
+	// Verify offset didn't change due to DST transition at boundary
+	const offset2 = getTimezoneOffsetMs(new Date(adjusted), timezone);
+	if (offset1 !== offset2) {
+		return new Date(localAsUtcMs - offset2);
+	}
+
+	return new Date(adjusted);
+}
+
+/**
+ * Returns a UTC Date for end of day (23:59:59.999) in the given timezone.
+ */
+function endOfDayUTC(dateStr: string, timezone: string): Date {
+	const eod = localToUTC(dateStr, '23:59', timezone);
+	return new Date(eod.getTime() + 59 * 1000 + 999);
+}
+
+/**
+ * Computes day of week from a "YYYY-MM-DD" string using UTC to avoid timezone issues.
+ * Returns 0 (Sunday) through 6 (Saturday).
+ */
+function dayOfWeekFromDateStr(dateStr: string): number {
+	const [year, month, day] = dateStr.split('-').map(Number) as [number, number, number];
+	return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }

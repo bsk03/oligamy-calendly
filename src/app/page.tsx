@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { BookingCard } from "@/components/booking/BookingCard";
+import { BookingFooter } from "@/components/booking/BookingFooter";
+import { BookingHeader } from "@/components/booking/BookingHeader";
 import { LanguageSwitcher } from "@/components/booking/LanguageSwitcher";
 import { env } from "@/env";
 import { LocaleProvider } from "@/i18n/context";
@@ -61,16 +63,12 @@ export default async function Home() {
 			<LocaleProvider defaultLocale={defaultLocale}>
 				<main className="flex min-h-svh flex-col items-center justify-center bg-background px-3 py-6 md:p-4">
 					<div className="flex w-full max-w-5xl flex-col items-center gap-6">
-						{/* eslint-disable-next-line @next/next/no-img-element */}
-						<img
-							src="/logo.svg"
-							alt="Oligamy Software"
-							className="h-8 w-auto"
-						/>
+						<BookingHeader />
 						<BookingCard
 							username={groupSlug ? null : subdomain}
 							groupSlug={groupSlug}
 						/>
+						<BookingFooter />
 					</div>
 				</main>
 				<LanguageSwitcher />

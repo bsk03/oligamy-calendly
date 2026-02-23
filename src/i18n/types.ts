@@ -1,6 +1,9 @@
 export type Locale = "en" | "pl";
 
 export interface Dictionary {
+	bookingPage: {
+		title: string;
+	};
 	bookingCalendar: {
 		dayLabels: [string, string, string, string, string, string, string];
 	};

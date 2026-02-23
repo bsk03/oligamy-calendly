@@ -22,6 +22,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
@@ -46,6 +47,10 @@ export function CreateGroupDialog({
 	const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 	const [description, setDescription] = useState("");
 	const [hostUserId, setHostUserId] = useState("");
+	const [timezone, setTimezone] = useState("Europe/Warsaw");
+	const [bookingWindowMode, setBookingWindowMode] = useState<"relative" | "absolute">("relative");
+	const [bookingWindowDays, setBookingWindowDays] = useState(30);
+	const [bookingWindowEndDate, setBookingWindowEndDate] = useState("");
 
 	const { data: teamMembers } = api.team.list.useQuery();
 	const utils = api.useUtils();
@@ -66,6 +71,10 @@ export function CreateGroupDialog({
 		setSlugManuallyEdited(false);
 		setDescription("");
 		setHostUserId("");
+		setTimezone("Europe/Warsaw");
+		setBookingWindowMode("relative");
+		setBookingWindowDays(30);
+		setBookingWindowEndDate("");
 	}
 
 	useEffect(() => {
@@ -83,6 +92,10 @@ export function CreateGroupDialog({
 			slug: slug.trim(),
 			description: description.trim() || undefined,
 			hostUserId,
+			timezone,
+			bookingWindowMode,
+			bookingWindowDays: bookingWindowMode === "relative" ? bookingWindowDays : undefined,
+			bookingWindowEndDate: bookingWindowMode === "absolute" && bookingWindowEndDate ? bookingWindowEndDate : null,
 		});
 	}
 
@@ -93,7 +106,7 @@ export function CreateGroupDialog({
 					<DialogTitle>Create Group</DialogTitle>
 					<DialogDescription>
 						Create a booking group with a shared calendar. The
-						group&apos;s slug becomes its subdomain URL.
+						group&apos;s slug becomes its booking URL.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -109,7 +122,7 @@ export function CreateGroupDialog({
 					</div>
 
 					<div className="grid gap-2">
-						<Label htmlFor="group-slug">Slug (subdomain)</Label>
+						<Label htmlFor="group-slug">Slug (URL)</Label>
 						<Input
 							id="group-slug"
 							value={slug}
@@ -121,7 +134,7 @@ export function CreateGroupDialog({
 						/>
 						{slug && (
 							<p className="text-xs text-muted-foreground">
-								URL: {slug}.your-domain.com
+								URL: /book/{slug}
 							</p>
 						)}
 					</div>
@@ -157,6 +170,46 @@ export function CreateGroupDialog({
 							The host&apos;s calendar and availability schedule are used
 							for booking.
 						</p>
+					</div>
+
+					<div className="grid gap-2">
+						<Label>Timezone</Label>
+						<TimezoneCombobox value={timezone} onChange={setTimezone} />
+					</div>
+
+					<div className="grid gap-2">
+						<Label>Booking Window</Label>
+						<Select
+							value={bookingWindowMode}
+							onValueChange={(v) => setBookingWindowMode(v as "relative" | "absolute")}
+						>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="relative">Relative (days from now)</SelectItem>
+								<SelectItem value="absolute">Absolute (end date)</SelectItem>
+							</SelectContent>
+						</Select>
+						{bookingWindowMode === "relative" ? (
+							<div className="flex items-center gap-2">
+								<Input
+									type="number"
+									min={1}
+									max={365}
+									value={bookingWindowDays}
+									onChange={(e) => setBookingWindowDays(Number(e.target.value))}
+									className="w-24"
+								/>
+								<span className="text-sm text-muted-foreground">days</span>
+							</div>
+						) : (
+							<Input
+								type="date"
+								value={bookingWindowEndDate}
+								onChange={(e) => setBookingWindowEndDate(e.target.value)}
+							/>
+						)}
 					</div>
 
 					<DialogFooter>

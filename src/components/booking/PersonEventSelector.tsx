@@ -2,26 +2,11 @@
 
 import { Globe, Users } from "lucide-react";
 
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GoogleMeetIcon } from "@/components/icons";
 import { useTranslation } from "@/i18n/context";
 import { cn } from "@/lib/utils";
-
-const TIMEZONES = [
-	"Europe/Warsaw",
-	"Europe/London",
-	"Europe/Berlin",
-	"Europe/Paris",
-	"Europe/Amsterdam",
-	"America/New_York",
-	"America/Chicago",
-	"America/Denver",
-	"America/Los_Angeles",
-	"Asia/Tokyo",
-	"Asia/Shanghai",
-	"Australia/Sydney",
-	"UTC",
-];
 
 interface EventType {
 	id: string;
@@ -217,17 +202,11 @@ export function PersonEventSelector({
 				<div className="md:mt-auto">
 					<div className="flex items-center gap-1.5 text-muted-foreground">
 						<Globe className="size-3.5 shrink-0" />
-						<select
+						<TimezoneCombobox
 							value={timezone}
-							onChange={(e) => onTimezoneChange(e.target.value)}
-							className="cursor-pointer bg-transparent text-xs outline-none transition-colors hover:text-foreground"
-						>
-							{TIMEZONES.map((tz) => (
-								<option key={tz} value={tz}>
-									{tz.replace(/_/g, " ")}
-								</option>
-							))}
-						</select>
+							onChange={onTimezoneChange}
+							triggerClassName="h-auto border-0 bg-transparent px-0 py-0 text-xs shadow-none hover:bg-transparent focus-visible:ring-0"
+						/>
 					</div>
 				</div>
 			</div>
@@ -380,17 +359,11 @@ export function PersonEventSelector({
 			<div className="md:mt-auto">
 				<div className="flex items-center gap-1.5 text-muted-foreground">
 					<Globe className="size-3.5 shrink-0" />
-					<select
+					<TimezoneCombobox
 						value={timezone}
-						onChange={(e) => onTimezoneChange(e.target.value)}
-						className="cursor-pointer bg-transparent text-xs outline-none transition-colors hover:text-foreground"
-					>
-						{TIMEZONES.map((tz) => (
-							<option key={tz} value={tz}>
-								{tz.replace(/_/g, " ")}
-							</option>
-						))}
-					</select>
+						onChange={onTimezoneChange}
+						triggerClassName="h-auto border-0 bg-transparent px-0 py-0 text-xs shadow-none hover:bg-transparent focus-visible:ring-0"
+					/>
 				</div>
 			</div>
 		</div>

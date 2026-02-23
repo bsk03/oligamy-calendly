@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +16,21 @@ import { TimeSlotList } from "./TimeSlotList";
 
 type Step = "select" | "form";
 
+const slideVariants = {
+	enter: (direction: number) => ({
+		x: direction > 0 ? 30 : -30,
+		opacity: 0,
+	}),
+	center: {
+		x: 0,
+		opacity: 1,
+	},
+	exit: (direction: number) => ({
+		x: direction > 0 ? -30 : 30,
+		opacity: 0,
+	}),
+};
+
 interface BookingCardProps {
 	username?: string | null;
 	groupSlug?: string | null;
@@ -23,6 +39,7 @@ interface BookingCardProps {
 export function BookingCard({ username, groupSlug }: BookingCardProps) {
 	const { t } = useTranslation();
 	const [step, setStep] = useState<Step>("select");
+	const [direction, setDirection] = useState(1);
 	const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 	const [selectedDuration, setSelectedDuration] = useState<number | null>(
 		null,
@@ -33,7 +50,9 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 		new Date(new Date().getFullYear(), new Date().getMonth(), 1),
 	);
 	const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("24h");
-	const [timezone, setTimezone] = useState("Europe/Warsaw");
+	const [timezone, setTimezone] = useState(
+		() => Intl.DateTimeFormat().resolvedOptions().timeZone,
+	);
 
 	const isGroupMode = !!groupSlug;
 
@@ -205,6 +224,7 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 	};
 
 	const handleBack = () => {
+		setDirection(-1);
 		setStep("select");
 	};
 
@@ -249,52 +269,6 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 		);
 	}
 
-	// Step 2: Booking form
-	if (step === "form" && selectedDate && selectedSlotObj) {
-		if (isGroupMode && groupData && groupEventType) {
-			return (
-				<BookingForm
-					host={{
-						userId: groupData.host?.id ?? "",
-						name: groupData.host?.name ?? "",
-						image: groupData.host?.image ?? null,
-						avatarUrl: groupData.host?.avatarUrl ?? null,
-						bio: groupData.host?.bio ?? null,
-					}}
-					eventType={{
-						id: groupEventType.id,
-						title: groupEventType.title,
-						durationMinutes: groupEventType.durationMinutes,
-					}}
-					slot={selectedSlotObj}
-					date={selectedDate}
-					timezone={timezone}
-					onBack={handleBack}
-					groupId={groupData.id}
-					groupEventTypeId={groupEventType.id}
-					groupData={{
-						name: groupData.name,
-						description: groupData.description,
-						members: groupData.members,
-					}}
-				/>
-			);
-		}
-
-		if (selectedPerson && selectedEventType) {
-			return (
-				<BookingForm
-					host={selectedPerson}
-					eventType={selectedEventType}
-					slot={selectedSlotObj}
-					date={selectedDate}
-					timezone={timezone}
-					onBack={handleBack}
-				/>
-			);
-		}
-	}
-
 	// Compute durations for group mode
 	const groupDurations = groupData
 		? [...new Set(groupData.eventTypes.map((et) => et.durationMinutes))].sort(
@@ -302,105 +276,192 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 			)
 		: [];
 
-	// Step 1: Date & time picker
+	// Build form props for step 2
+	const formProps =
+		step === "form" && selectedDate && selectedSlotObj
+			? isGroupMode && groupData && groupEventType
+				? {
+						host: {
+							userId: groupData.host?.id ?? "",
+							name: groupData.host?.name ?? "",
+							image: groupData.host?.image ?? null,
+							avatarUrl: groupData.host?.avatarUrl ?? null,
+							bio: groupData.host?.bio ?? null,
+						},
+						eventType: {
+							id: groupEventType.id,
+							title: groupEventType.title,
+							durationMinutes: groupEventType.durationMinutes,
+						},
+						slot: selectedSlotObj,
+						date: selectedDate,
+						timezone,
+						onBack: handleBack,
+						groupId: groupData.id,
+						groupEventTypeId: groupEventType.id,
+						groupData: {
+							name: groupData.name,
+							description: groupData.description,
+							members: groupData.members,
+						},
+						noCard: true as const,
+					}
+				: selectedPerson && selectedEventType
+					? {
+							host: selectedPerson,
+							eventType: selectedEventType,
+							slot: selectedSlotObj,
+							date: selectedDate,
+							timezone,
+							onBack: handleBack,
+							noCard: true as const,
+						}
+					: null
+			: null;
+
 	return (
-		<Card className="w-full max-w-5xl">
-			<CardContent>
-				<div className="flex flex-col md:h-[480px] md:flex-row">
-					{/* Left: Person/Group, Info, Duration, Timezone */}
-					<div className="w-full shrink-0 overflow-y-auto pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
-						{isGroupMode && groupData ? (
-							<PersonEventSelector
-								people={[]}
-								selectedUserId={null}
-								selectedDuration={selectedDuration}
-								selectedEventType={
-									groupEventType
-										? {
-												id: groupEventType.id,
-												title: groupEventType.title,
-												slug: groupEventType.slug,
-												durationMinutes: groupEventType.durationMinutes,
-												description: groupEventType.description,
-												color: groupEventType.color,
-											}
-										: null
-								}
-								onUserChange={handleUserChange}
-								onDurationChange={handleDurationChange}
-								timezone={timezone}
-								onTimezoneChange={setTimezone}
-								locked
-								groupData={{
-									name: groupData.name,
-									description: groupData.description,
-									host: groupData.host,
-									members: groupData.members,
-									durations: groupDurations,
-								}}
-							/>
-						) : (
-							<PersonEventSelector
-								people={people}
-								selectedUserId={selectedUserId}
-								selectedDuration={selectedDuration}
-								selectedEventType={selectedEventType}
-								onUserChange={handleUserChange}
-								onDurationChange={handleDurationChange}
-								timezone={timezone}
-								onTimezoneChange={setTimezone}
-								locked={isLocked}
-							/>
-						)}
-					</div>
+		<motion.div
+			layout
+			className={`w-full ${step === "select" ? "max-w-5xl" : "max-w-2xl"}`}
+			transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+		>
+			<Card className="overflow-hidden">
+				<CardContent>
+					<AnimatePresence mode="wait" custom={direction} initial={false}>
+						{step === "select" ? (
+							<motion.div
+								key="select"
+								custom={direction}
+								variants={slideVariants}
+								initial="enter"
+								animate="center"
+								exit="exit"
+								transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+							>
+								<div className="flex flex-col md:h-[480px] md:flex-row">
+									{/* Left: Person/Group, Info, Duration, Timezone */}
+									<div className="w-full shrink-0 overflow-y-auto pb-5 md:w-[240px] md:border-r md:pb-0 md:pr-6">
+										{isGroupMode && groupData ? (
+											<PersonEventSelector
+												people={[]}
+												selectedUserId={null}
+												selectedDuration={selectedDuration}
+												selectedEventType={
+													groupEventType
+														? {
+																id: groupEventType.id,
+																title: groupEventType.title,
+																slug: groupEventType.slug,
+																durationMinutes: groupEventType.durationMinutes,
+																description: groupEventType.description,
+																color: groupEventType.color,
+															}
+														: null
+												}
+												onUserChange={handleUserChange}
+												onDurationChange={handleDurationChange}
+												timezone={timezone}
+												onTimezoneChange={setTimezone}
+												locked
+												groupData={{
+													name: groupData.name,
+													description: groupData.description,
+													host: groupData.host,
+													members: groupData.members,
+													durations: groupDurations,
+												}}
+											/>
+										) : (
+											<PersonEventSelector
+												people={people}
+												selectedUserId={selectedUserId}
+												selectedDuration={selectedDuration}
+												selectedEventType={selectedEventType}
+												onUserChange={handleUserChange}
+												onDurationChange={handleDurationChange}
+												timezone={timezone}
+												onTimezoneChange={setTimezone}
+												locked={isLocked}
+											/>
+										)}
+									</div>
 
-					{/* Middle: Calendar */}
-					<div className="shrink-0 border-t py-5 md:border-t-0 md:px-6 md:py-0">
-						<BookingCalendar
-							currentMonth={currentMonth}
-							availableDates={availableDatesSet}
-							selectedDate={selectedDate}
-							isLoading={isDatesLoading}
-							onDateSelect={handleDateSelect}
-							onMonthChange={handleMonthChange}
-						/>
-					</div>
+									{/* Middle: Calendar */}
+									<div className="shrink-0 border-t py-5 md:border-t-0 md:px-6 md:py-0">
+										<BookingCalendar
+											currentMonth={currentMonth}
+											availableDates={availableDatesSet}
+											selectedDate={selectedDate}
+											isLoading={isDatesLoading}
+											onDateSelect={handleDateSelect}
+											onMonthChange={handleMonthChange}
+										/>
+									</div>
 
-					{/* Right: Time Slots + Continue */}
-					<div className="flex w-full flex-col overflow-hidden border-t pt-5 md:min-h-0 md:min-w-[180px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
-						{selectedDate ? (
-							<div className="flex max-h-[300px] flex-col md:max-h-none md:flex-1">
-								<TimeSlotList
-									slots={slots}
-									selectedSlot={selectedSlot}
-									isLoading={isSlotsLoading}
-									onSlotSelect={handleSlotSelect}
-									dateString={selectedDate}
-									timeFormat={timeFormat}
-									onTimeFormatChange={setTimeFormat}
-									timezone={timezone}
-								/>
+									{/* Right: Time Slots + Continue */}
+									<div className="flex w-full flex-col border-t pt-5 md:min-h-0 md:min-w-[180px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
+										{selectedDate ? (
+											<>
+												<div className="min-h-0 max-h-[260px] flex-1 md:max-h-none">
+													<TimeSlotList
+														slots={slots}
+														selectedSlot={selectedSlot}
+														isLoading={isSlotsLoading}
+														onSlotSelect={handleSlotSelect}
+														dateString={selectedDate}
+														timeFormat={timeFormat}
+														onTimeFormatChange={setTimeFormat}
+														timezone={timezone}
+													/>
+												</div>
 
-								{canProceed && (
-									<Button
-										onClick={() => setStep("form")}
-										className="mt-4 w-full shrink-0"
-									>
-										{t.bookingCard.continue}
-										<ArrowRight className="size-4" />
-									</Button>
-								)}
-							</div>
-						) : (
-							<div className="flex h-full items-center justify-center py-6 md:py-0">
-								<p className="text-center text-[13px] text-muted-foreground whitespace-pre-line">
-									{t.bookingCard.selectDatePrompt}
-								</p>
-							</div>
-						)}
-					</div>
-				</div>
-			</CardContent>
-		</Card>
+												<div
+													className={`mt-4 grid shrink-0 transition-all duration-300 ease-out ${
+														canProceed
+															? "grid-rows-[1fr] opacity-100"
+															: "grid-rows-[0fr] opacity-0"
+													}`}
+												>
+													<div className="overflow-hidden">
+														<Button
+															onClick={() => {
+																setDirection(1);
+																setStep("form");
+															}}
+															className="w-full"
+														>
+															{t.bookingCard.continue}
+															<ArrowRight className="size-4" />
+														</Button>
+													</div>
+												</div>
+											</>
+										) : (
+											<div className="flex h-full items-center justify-center py-6 md:py-0">
+												<p className="text-center text-[13px] text-muted-foreground whitespace-pre-line">
+													{t.bookingCard.selectDatePrompt}
+												</p>
+											</div>
+										)}
+									</div>
+								</div>
+							</motion.div>
+						) : formProps ? (
+							<motion.div
+								key="form"
+								custom={direction}
+								variants={slideVariants}
+								initial="enter"
+								animate="center"
+								exit="exit"
+								transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+							>
+								<BookingForm {...formProps} />
+							</motion.div>
+						) : null}
+					</AnimatePresence>
+				</CardContent>
+			</Card>
+		</motion.div>
 	);
 }

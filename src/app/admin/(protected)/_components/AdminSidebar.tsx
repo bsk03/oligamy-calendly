@@ -61,8 +61,20 @@ const settingsNav = [
 		icon: LinkIcon,
 		statusKey: 'hasGoogleCalendar' as const,
 	},
-	{ title: 'Team', href: '/admin/team', icon: Users, statusKey: null, adminOnly: false },
-	{ title: 'Groups', href: '/admin/groups', icon: UsersRound, statusKey: null, adminOnly: true },
+	{
+		title: 'Team',
+		href: '/admin/team',
+		icon: Users,
+		statusKey: null,
+		adminOnly: false,
+	},
+	{
+		title: 'Groups',
+		href: '/admin/groups',
+		icon: UsersRound,
+		statusKey: null,
+		adminOnly: true,
+	},
 	{
 		title: 'Settings',
 		href: '/admin/settings',
@@ -102,17 +114,12 @@ export function AdminSidebar({ email, role }: { email: string; role: string }) {
 
 	return (
 		<Sidebar collapsible='icon'>
-			<SidebarHeader className='px-4 py-5'>
+			<SidebarHeader className=' px-4'>
 				<Link
 					href='/admin'
-					className='flex items-center gap-2 group-data-[collapsible=icon]:justify-center'
+					className='flex items-center h-full gap-2 py-[0.34375rem] group-data-[collapsible=icon]:justify-center'
 				>
-					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img
-						src='/Subtract.svg'
-						alt='Oligamy'
-						className='size-7'
-					/>
+					<img src='/Subtract.svg' alt='Oligamy' className='size-7' />
 					<span className='text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden'>
 						Oligamy Cal
 					</span>
@@ -153,25 +160,27 @@ export function AdminSidebar({ email, role }: { email: string; role: string }) {
 					<SidebarGroupLabel>Settings</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
-							{settingsNav.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-								<SidebarMenuItem key={item.href}>
-									<SidebarMenuButton
-										asChild
-										isActive={pathname === item.href}
-										tooltip={item.title}
-									>
-										<Link href={item.href}>
-											<item.icon />
-											<span>{item.title}</span>
-										</Link>
-									</SidebarMenuButton>
-									{needsAttention(item.statusKey) && (
-										<SidebarMenuBadge>
-											<SetupDot />
-										</SidebarMenuBadge>
-									)}
-								</SidebarMenuItem>
-							))}
+							{settingsNav
+								.filter((item) => !item.adminOnly || isAdmin)
+								.map((item) => (
+									<SidebarMenuItem key={item.href}>
+										<SidebarMenuButton
+											asChild
+											isActive={pathname === item.href}
+											tooltip={item.title}
+										>
+											<Link href={item.href}>
+												<item.icon />
+												<span>{item.title}</span>
+											</Link>
+										</SidebarMenuButton>
+										{needsAttention(item.statusKey) && (
+											<SidebarMenuBadge>
+												<SetupDot />
+											</SidebarMenuBadge>
+										)}
+									</SidebarMenuItem>
+								))}
 						</SidebarMenu>
 					</SidebarGroupContent>
 				</SidebarGroup>

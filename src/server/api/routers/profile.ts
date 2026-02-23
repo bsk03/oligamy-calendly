@@ -19,20 +19,21 @@ export const profileRouter = createTRPCRouter({
 	get: protectedProcedure.query(async ({ ctx }) => {
 		const userId = ctx.session.user.id;
 
+		const [u] = await ctx.db
+			.select({ name: user.name })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1);
+
+		const _name = u?.name ?? "";
+
 		const [existing] = await ctx.db
 			.select()
 			.from(profile)
 			.where(eq(profile.userId, userId))
 			.limit(1);
 
-		if (existing) return existing;
-
-		// No profile yet — return defaults from user record
-		const [u] = await ctx.db
-			.select({ name: user.name })
-			.from(user)
-			.where(eq(user.id, userId))
-			.limit(1);
+		if (existing) return { ...existing, _name };
 
 		return {
 			userId,
@@ -47,7 +48,7 @@ export const profileRouter = createTRPCRouter({
 			bookingWindowEndDate: null as string | null,
 			createdAt: new Date(),
 			updatedAt: new Date(),
-			_name: u?.name ?? "",
+			_name,
 			_exists: false as const,
 		};
 	}),
@@ -55,6 +56,7 @@ export const profileRouter = createTRPCRouter({
 	update: protectedProcedure
 		.input(
 			z.object({
+				name: z.string().min(1).max(100).optional(),
 				username: z.string()
 					.min(3)
 					.max(40)
@@ -106,6 +108,14 @@ export const profileRouter = createTRPCRouter({
 						message: "This username conflicts with an existing group.",
 					});
 				}
+			}
+
+			// Update user name if provided
+			if (input.name) {
+				await ctx.db
+					.update(user)
+					.set({ name: input.name, updatedAt: new Date() })
+					.where(eq(user.id, userId));
 			}
 
 			// Upsert profile

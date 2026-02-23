@@ -83,7 +83,7 @@ export function GroupManager() {
 								</div>
 
 								<a
-									href={`${env.NEXT_PUBLIC_APP_URL.replace("://", `://${g.slug}.`)}`}
+									href={`${env.NEXT_PUBLIC_APP_URL}/book/${g.slug}`}
 									target="_blank"
 									rel="noopener noreferrer"
 									onClick={(e) => e.stopPropagation()}

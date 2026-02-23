@@ -98,6 +98,7 @@ export function RegisterForm() {
 			token,
 			name: data.name.trim(),
 			password: data.password,
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		});
 	}
 

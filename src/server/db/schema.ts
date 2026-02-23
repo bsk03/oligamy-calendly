@@ -384,6 +384,10 @@ export const group = createTable(
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
 		isActive: d.boolean().notNull().default(true),
+		timezone: d.text().notNull().default("Europe/Warsaw"),
+		bookingWindowMode: d.text().notNull().default("relative"),
+		bookingWindowDays: d.integer().notNull().default(30),
+		bookingWindowEndDate: d.date(),
 		createdAt: d
 			.timestamp({ withTimezone: true })
 			.$defaultFn(() => new Date())

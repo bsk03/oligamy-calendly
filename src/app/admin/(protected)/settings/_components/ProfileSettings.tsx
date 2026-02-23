@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Calendar, CheckCircle2, Globe, Link, Loader2, User, XCircle } from "lucide-react";
+import { Calendar, CheckCircle2, Eye, Globe, Link, Loader2, User, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,32 +15,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
-
-const TIMEZONES = [
-	"Europe/Warsaw",
-	"Europe/London",
-	"Europe/Berlin",
-	"Europe/Paris",
-	"Europe/Amsterdam",
-	"America/New_York",
-	"America/Chicago",
-	"America/Denver",
-	"America/Los_Angeles",
-	"Asia/Tokyo",
-	"Asia/Shanghai",
-	"Australia/Sydney",
-	"UTC",
-];
 
 export function ProfileSettings() {
 	const { data: profileData, isLoading } = api.profile.get.useQuery();
 	const utils = api.useUtils();
 
+	const [name, setName] = useState("");
 	const [username, setUsername] = useState("");
 	const [bio, setBio] = useState("");
-	const [timezone, setTimezone] = useState("Europe/Warsaw");
+	const [timezone, setTimezone] = useState(
+		() => Intl.DateTimeFormat().resolvedOptions().timeZone,
+	);
 	const [isVisibleOnHome, setIsVisibleOnHome] = useState(false);
 	const [bookingWindowMode, setBookingWindowMode] = useState<"relative" | "absolute">("relative");
 	const [bookingWindowDays, setBookingWindowDays] = useState(30);
@@ -49,6 +37,7 @@ export function ProfileSettings() {
 
 	useEffect(() => {
 		if (profileData) {
+			setName(profileData._name ?? "");
 			setUsername(profileData.username ?? "");
 			setBio(profileData.bio ?? "");
 			setTimezone(profileData.timezone);
@@ -77,6 +66,7 @@ export function ProfileSettings() {
 
 	const handleSave = () => {
 		updateProfile.mutate({
+			name: name.trim() || undefined,
 			username: username || null,
 			bio: bio || undefined,
 			timezone,
@@ -98,7 +88,8 @@ export function ProfileSettings() {
 
 	const hasChanges =
 		profileData &&
-		((username || "") !== (profileData.username ?? "") ||
+		(name !== (profileData._name ?? "") ||
+			(username || "") !== (profileData.username ?? "") ||
 			(bio || "") !== (profileData.bio ?? "") ||
 			timezone !== profileData.timezone ||
 			isVisibleOnHome !== profileData.isVisibleOnHome ||
@@ -130,6 +121,18 @@ export function ProfileSettings() {
 				</CardHeader>
 				<CardContent className="grid gap-4">
 					<div className="grid gap-2">
+						<Label htmlFor="name">Name</Label>
+						<Input
+							id="name"
+							placeholder="e.g. Jan Kowalski"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Your full name displayed on the booking page.
+						</p>
+					</div>
+					<div className="grid gap-2">
 						<Label htmlFor="bio">Role / Bio <span className="text-red-500">*</span></Label>
 						<Textarea
 							id="bio"
@@ -157,18 +160,10 @@ export function ProfileSettings() {
 				<CardContent className="grid gap-5">
 					<div className="grid gap-2">
 						<Label htmlFor="timezone">Timezone</Label>
-						<select
-							id="timezone"
+						<TimezoneCombobox
 							value={timezone}
-							onChange={(e) => setTimezone(e.target.value)}
-							className="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-						>
-							{TIMEZONES.map((tz) => (
-								<option key={tz} value={tz}>
-									{tz.replace(/_/g, " ")}
-								</option>
-							))}
-						</select>
+							onChange={setTimezone}
+						/>
 					</div>
 
 					<div className="grid gap-2">
@@ -187,6 +182,21 @@ export function ProfileSettings() {
 						</p>
 					</div>
 
+				</CardContent>
+			</Card>
+
+			{/* Visibility */}
+			<Card>
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2">
+						<Eye className="size-4" />
+						Visibility
+					</CardTitle>
+					<CardDescription>
+						Control whether you appear on the booking page.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
 					<div className="flex items-center justify-between rounded-lg border p-4">
 						<div className="space-y-0.5">
 							<Label>Visible on booking page</Label>
@@ -338,15 +348,12 @@ function UsernameCard({
 			},
 		);
 
-	const baseDomain = useMemo(() => {
-		if (typeof window === "undefined") return "localhost:3000";
-		const host = window.location.host;
-		// Strip any existing subdomain for preview (e.g., "app.book-cal.com" → "book-cal.com")
-		// For localhost, keep as-is
-		return host;
+	const baseUrl = useMemo(() => {
+		if (typeof window === "undefined") return "http://localhost:3000";
+		return window.location.origin;
 	}, []);
 
-	const previewUrl = username ? `${username}.${baseDomain}` : null;
+	const pathUrl = username ? `${baseUrl}/book/${username}` : null;
 
 	let validationStatus: "idle" | "invalid" | "checking" | "taken" | "available" | "saved" = "idle";
 	if (username === "") {
@@ -373,31 +380,25 @@ function UsernameCard({
 					Personal URL
 				</CardTitle>
 				<CardDescription>
-					Your unique booking subdomain. Guests will visit this
+					Your unique booking URL. Guests will visit this
 					address to schedule meetings with you.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
 				<div className="grid gap-2">
 					<Label htmlFor="username">Username</Label>
-					<div className="flex items-center">
-						<Input
-							id="username"
-							placeholder="e.g. kowalczyk"
-							value={username}
-							onChange={(e) =>
-								onUsernameChange(
-									e.target.value
-										.toLowerCase()
-										.replace(/[^a-z0-9-]/g, ""),
-								)
-							}
-							className="rounded-r-none"
-						/>
-						<span className="flex h-9 items-center rounded-r-md border border-l-0 bg-muted px-3 text-sm text-muted-foreground whitespace-nowrap">
-							.{baseDomain}
-						</span>
-					</div>
+					<Input
+						id="username"
+						placeholder="e.g. kowalczyk"
+						value={username}
+						onChange={(e) =>
+							onUsernameChange(
+								e.target.value
+									.toLowerCase()
+									.replace(/[^a-z0-9-]/g, ""),
+							)
+						}
+					/>
 					<p className="text-xs text-muted-foreground">
 						Only lowercase letters, numbers, and hyphens. Min 3
 						characters.
@@ -439,31 +440,19 @@ function UsernameCard({
 				)}
 
 				{/* Link preview */}
-				{previewUrl && validationStatus !== "invalid" && (
+				{pathUrl && validationStatus !== "invalid" && (
 					<div className="rounded-md border bg-muted/50 px-3 py-2">
 						<p className="text-xs text-muted-foreground mb-1">
-							Your booking link will be:
+							Your booking link:
 						</p>
-						<p className="text-sm font-medium font-mono">
-							{previewUrl}
-						</p>
-						{process.env.NODE_ENV === "development" && (
-							<div className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-								<AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
-								<span>
-									Development mode — subdomain routing requires
-									DNS / hosts file configuration (e.g.{" "}
-									<code className="rounded bg-muted px-1 font-mono">
-										127.0.0.1 {previewUrl.split(":")[0]}
-									</code>
-									) or use{" "}
-									<code className="rounded bg-muted px-1 font-mono">
-										{username}.lvh.me:3000
-									</code>{" "}
-									which resolves to 127.0.0.1 automatically.
-								</span>
-							</div>
-						)}
+						<a
+							href={pathUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="text-sm font-medium font-mono text-primary hover:underline break-all"
+						>
+							{pathUrl}
+						</a>
 					</div>
 				)}
 			</CardContent>
