@@ -402,7 +402,7 @@ export function BookingCard({ username, groupSlug }: BookingCardProps) {
 									<div className="flex w-full flex-col border-t pt-5 md:min-h-0 md:min-w-[180px] md:border-t-0 md:border-l md:pl-6 md:pt-0">
 										{selectedDate ? (
 											<>
-												<div className="min-h-0 max-h-[260px] flex-1 md:max-h-none">
+												<div className="h-[260px] min-h-0 overscroll-contain md:h-auto md:flex-1">
 													<TimeSlotList
 														slots={slots}
 														selectedSlot={selectedSlot}
