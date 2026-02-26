@@ -1,21 +1,50 @@
-import nodemailer from "nodemailer";
-import { env } from "@/env";
+import { google } from 'googleapis';
+import { format } from 'date-fns';
+import { TZDate } from '@date-fns/tz';
+import { env } from '@/env';
 
-const transporter = nodemailer.createTransport({
-	host: env.SMTP_HOST,
-	port: env.SMTP_PORT,
-	secure: env.SMTP_PORT === 465,
-	auth: {
-		user: env.SMTP_USER,
-		pass: env.SMTP_PASS,
-	},
-});
+function getGmailService() {
+	const auth = new google.auth.JWT({
+		email: env.GOOGLE_CLIENT_EMAIL,
+		key: env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+		scopes: ['https://www.googleapis.com/auth/gmail.send'],
+		subject: env.GOOGLE_IMPERSONATE_USER,
+	});
+
+	return google.gmail({ version: 'v1', auth });
+}
+
+async function sendEmail(opts: { to: string; subject: string; html: string }) {
+	const gmail = getGmailService();
+
+	const message = [
+		`From: ${env.GOOGLE_IMPERSONATE_USER}`,
+		`To: ${opts.to}`,
+		`Subject: ${opts.subject}`,
+		'MIME-Version: 1.0',
+		'Content-Type: text/html; charset="UTF-8"',
+		'',
+		opts.html,
+	].join('\r\n');
+
+	const raw = Buffer.from(message)
+		.toString('base64')
+		.replace(/\+/g, '-')
+		.replace(/\//g, '_')
+		.replace(/=+$/, '');
+
+	console.log('wysyla sie', env.GOOGLE_IMPERSONATE_USER);
+
+	await gmail.users.messages.send({
+		userId: env.GOOGLE_IMPERSONATE_USER,
+		requestBody: { raw },
+	});
+}
 
 export async function sendInvitationEmail(to: string, token: string) {
 	const registerUrl = `${env.NEXT_PUBLIC_APP_URL}/register?token=${token}`;
 
-	await transporter.sendMail({
-		from: env.EMAIL_FROM,
+	await sendEmail({
 		to,
 		subject: "You're invited to Oligamy Cal",
 		html: `

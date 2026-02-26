@@ -18,10 +18,9 @@ export const env = createEnv({
 
 		TOKEN_ENCRYPTION_KEY: z.string().length(64),
 
-		SMTP_HOST: z.string(),
-		SMTP_PORT: z.coerce.number(),
-		SMTP_USER: z.string(),
-		SMTP_PASS: z.string(),
+		GOOGLE_CLIENT_EMAIL: z.string(),
+		GOOGLE_PRIVATE_KEY: z.string(),
+		GOOGLE_IMPERSONATE_USER: z.string().email(),
 		EMAIL_FROM: z.string(),
 	},
 
@@ -38,10 +37,9 @@ export const env = createEnv({
 		GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
 		GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
 		TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
-		SMTP_HOST: process.env.SMTP_HOST,
-		SMTP_PORT: process.env.SMTP_PORT,
-		SMTP_USER: process.env.SMTP_USER,
-		SMTP_PASS: process.env.SMTP_PASS,
+		GOOGLE_CLIENT_EMAIL: process.env.GOOGLE_CLIENT_EMAIL,
+		GOOGLE_PRIVATE_KEY: process.env.GOOGLE_PRIVATE_KEY,
+		GOOGLE_IMPERSONATE_USER: process.env.GOOGLE_IMPERSONATE_USER,
 		EMAIL_FROM: process.env.EMAIL_FROM,
 		NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
 	},

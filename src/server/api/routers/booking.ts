@@ -1,8 +1,12 @@
-import { and, desc, eq, gte, lt, inArray } from "drizzle-orm";
-import { z } from "zod/v4";
-import { TRPCError } from "@trpc/server";
+import { and, desc, eq, gte, lt, inArray } from 'drizzle-orm';
+import { z } from 'zod/v4';
+import { TRPCError } from '@trpc/server';
 
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "@/server/api/trpc";
+import {
+	createTRPCRouter,
+	protectedProcedure,
+	publicProcedure,
+} from '@/server/api/trpc';
 import {
 	ACTIVE_BOOKING_STATUSES,
 	ALL_BOOKING_STATUSES,
@@ -15,30 +19,35 @@ import {
 	groupEventType,
 	groupMember,
 	user,
-} from "@/server/db/schema";
-import { getGoogleCalendarBusyPeriods } from "@/server/lib/availability";
+} from '@/server/db/schema';
+import { getGoogleCalendarBusyPeriods } from '@/server/lib/availability';
 import {
 	acceptCalendarEvent,
 	createCalendarEvent,
 	declineCalendarEvent,
 	getCalendarEventStatus,
-} from "@/server/lib/google-calendar";
-import { getEventTargetToken, getValidTokenById, getValidTokensByIds } from "@/server/lib/google-calendar-token";
-import { timezoneSchema } from "@/server/lib/validators";
+} from '@/server/lib/google-calendar';
+import {
+	getEventTargetToken,
+	getValidTokenById,
+	getValidTokensByIds,
+} from '@/server/lib/google-calendar-token';
+import { timezoneSchema } from '@/server/lib/validators';
 
 export const bookingRouter = createTRPCRouter({
 	/** List bookings. Users see own bookings, admins can filter by hostId. */
 	list: protectedProcedure
 		.input(
-			z.object({
-				hostId: z.string().optional(),
-			}).optional(),
+			z
+				.object({
+					hostId: z.string().optional(),
+				})
+				.optional(),
 		)
 		.query(async ({ ctx, input }) => {
-			const isAdmin = ctx.session.user.role === "admin";
-			const targetHostId = isAdmin && input?.hostId
-				? input.hostId
-				: ctx.session.user.id;
+			const isAdmin = ctx.session.user.role === 'admin';
+			const targetHostId =
+				isAdmin && input?.hostId ? input.hostId : ctx.session.user.id;
 
 			const bookings = await ctx.db
 				.select({
@@ -62,7 +71,10 @@ export const bookingRouter = createTRPCRouter({
 				})
 				.from(booking)
 				.leftJoin(eventType, eq(booking.eventTypeId, eventType.id))
-				.leftJoin(groupEventType, eq(booking.groupEventTypeId, groupEventType.id))
+				.leftJoin(
+					groupEventType,
+					eq(booking.groupEventTypeId, groupEventType.id),
+				)
 				.innerJoin(user, eq(booking.hostId, user.id))
 				.where(
 					isAdmin && !input?.hostId
@@ -73,15 +85,15 @@ export const bookingRouter = createTRPCRouter({
 
 			return bookings.map((b) => ({
 				...b,
-				eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? "Unknown",
+				eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? 'Unknown',
 				eventTypeDuration: b.eventTypeDuration ?? b.groupEventTypeDuration ?? 0,
 			}));
 		}),
 
 	/** List all hosts for admin filter dropdown */
 	hosts: protectedProcedure.query(async ({ ctx }) => {
-		if (ctx.session.user.role !== "admin") {
-			throw new TRPCError({ code: "FORBIDDEN" });
+		if (ctx.session.user.role !== 'admin') {
+			throw new TRPCError({ code: 'FORBIDDEN' });
 		}
 
 		// Get distinct hosts that have at least one booking
@@ -99,7 +111,7 @@ export const bookingRouter = createTRPCRouter({
 
 	/** Dashboard stats */
 	stats: protectedProcedure.query(async ({ ctx }) => {
-		const isAdmin = ctx.session.user.role === "admin";
+		const isAdmin = ctx.session.user.role === 'admin';
 		const userId = ctx.session.user.id;
 		const now = new Date();
 
@@ -139,7 +151,7 @@ export const bookingRouter = createTRPCRouter({
 
 		const upcoming = upcomingRaw.map((b) => ({
 			...b,
-			eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? "Unknown",
+			eventTypeTitle: b.eventTypeTitle ?? b.groupEventTypeTitle ?? 'Unknown',
 		}));
 
 		// Counts
@@ -149,7 +161,11 @@ export const bookingRouter = createTRPCRouter({
 			.where(upcomingFilter);
 
 		// Today's bookings
-		const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		const todayStart = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+		);
 		const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
 		const todayFilter = isAdmin
@@ -233,10 +249,16 @@ export const bookingRouter = createTRPCRouter({
 
 			// Basic time validation
 			if (startTime >= endTime) {
-				throw new TRPCError({ code: "BAD_REQUEST", message: "Start time must be before end time" });
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Start time must be before end time',
+				});
 			}
 			if (startTime < new Date()) {
-				throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot book in the past" });
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Cannot book in the past',
+				});
 			}
 
 			let resolvedHostId: string;
@@ -260,7 +282,11 @@ export const bookingRouter = createTRPCRouter({
 					)
 					.limit(1);
 
-				if (!get) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid group event type" });
+				if (!get)
+					throw new TRPCError({
+						code: 'NOT_FOUND',
+						message: 'Invalid group event type',
+					});
 
 				const [g] = await ctx.db
 					.select()
@@ -268,7 +294,11 @@ export const bookingRouter = createTRPCRouter({
 					.where(and(eq(group.id, get.groupId), eq(group.isActive, true)))
 					.limit(1);
 
-				if (!g) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found or inactive" });
+				if (!g)
+					throw new TRPCError({
+						code: 'NOT_FOUND',
+						message: 'Group not found or inactive',
+					});
 
 				resolvedHostId = g.hostUserId;
 				eventTitle = get.title;
@@ -286,7 +316,11 @@ export const bookingRouter = createTRPCRouter({
 			} else {
 				// ── Individual booking ──
 				if (!input.hostId || !input.eventTypeId) {
-					throw new TRPCError({ code: "BAD_REQUEST", message: "hostId and eventTypeId are required for individual bookings" });
+					throw new TRPCError({
+						code: 'BAD_REQUEST',
+						message:
+							'hostId and eventTypeId are required for individual bookings',
+					});
 				}
 
 				const [et] = await ctx.db
@@ -301,7 +335,11 @@ export const bookingRouter = createTRPCRouter({
 					)
 					.limit(1);
 
-				if (!et) throw new TRPCError({ code: "NOT_FOUND", message: "Invalid event type" });
+				if (!et)
+					throw new TRPCError({
+						code: 'NOT_FOUND',
+						message: 'Invalid event type',
+					});
 
 				resolvedHostId = input.hostId;
 				eventTitle = et.title;
@@ -314,8 +352,8 @@ export const bookingRouter = createTRPCRouter({
 			const actualMs = endTime.getTime() - startTime.getTime();
 			if (actualMs !== expectedMs) {
 				throw new TRPCError({
-					code: "BAD_REQUEST",
-					message: "Booking duration does not match event type duration",
+					code: 'BAD_REQUEST',
+					message: 'Booking duration does not match event type duration',
 				});
 			}
 
@@ -333,8 +371,9 @@ export const bookingRouter = createTRPCRouter({
 
 			if (hasCalendarConflict) {
 				throw new TRPCError({
-					code: "CONFLICT",
-					message: "This time slot is no longer available. Please choose another.",
+					code: 'CONFLICT',
+					message:
+						'This time slot is no longer available. Please choose another.',
 				});
 			}
 
@@ -355,8 +394,9 @@ export const bookingRouter = createTRPCRouter({
 
 				if (conflicts.length > 0) {
 					throw new TRPCError({
-						code: "CONFLICT",
-						message: "This time slot is no longer available. Please choose another.",
+						code: 'CONFLICT',
+						message:
+							'This time slot is no longer available. Please choose another.',
 					});
 				}
 
@@ -406,10 +446,11 @@ export const bookingRouter = createTRPCRouter({
 					if (host) {
 						const notesLine = input.guestNotes
 							? `\n\nNotes from guest:\n${input.guestNotes}`
-							: "";
+							: '';
 
 						// Get additional attendee emails for group bookings
-						let additionalAttendees: { email: string; displayName?: string }[] = [];
+						let additionalAttendees: { email: string; displayName?: string }[] =
+							[];
 						if (memberUserIds.length > 0) {
 							const memberUsers = await ctx.db
 								.select({ id: user.id, email: user.email, name: user.name })
@@ -440,9 +481,17 @@ export const bookingRouter = createTRPCRouter({
 							result = await createCalendarEvent(eventOpts);
 						} catch (calErr) {
 							// Fallback to primary if selected calendar no longer exists
-							if (token.calendarId !== "primary") {
-								console.warn("[booking] Calendar", token.calendarId, "failed, falling back to primary:", calErr);
-								result = await createCalendarEvent({ ...eventOpts, calendarId: "primary" });
+							if (token.calendarId !== 'primary') {
+								console.warn(
+									'[booking] Calendar',
+									token.calendarId,
+									'failed, falling back to primary:',
+									calErr,
+								);
+								result = await createCalendarEvent({
+									...eventOpts,
+									calendarId: 'primary',
+								});
 							} else {
 								throw calErr;
 							}
@@ -464,7 +513,7 @@ export const bookingRouter = createTRPCRouter({
 					}
 				}
 			} catch (err) {
-				console.error("[booking] Failed to create calendar event:", err);
+				console.error('[booking] Failed to create calendar event:', err);
 			}
 
 			return { bookingId, meetLink: null };
@@ -480,14 +529,17 @@ export const bookingRouter = createTRPCRouter({
 				.where(eq(booking.id, input.bookingId))
 				.limit(1);
 
-			if (!b) throw new TRPCError({ code: "NOT_FOUND" });
+			if (!b) throw new TRPCError({ code: 'NOT_FOUND' });
 
-			const isAdmin = ctx.session.user.role === "admin";
+			const isAdmin = ctx.session.user.role === 'admin';
 			if (b.hostId !== ctx.session.user.id && !isAdmin) {
-				throw new TRPCError({ code: "FORBIDDEN" });
+				throw new TRPCError({ code: 'FORBIDDEN' });
 			}
 			if (b.status === BookingStatus.CONFIRMED) {
-				throw new TRPCError({ code: "BAD_REQUEST", message: "Already confirmed" });
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Already confirmed',
+				});
 			}
 
 			await ctx.db
@@ -520,7 +572,7 @@ export const bookingRouter = createTRPCRouter({
 						}
 					}
 				} catch (err) {
-					console.error("[booking] Failed to accept calendar event:", err);
+					console.error('[booking] Failed to accept calendar event:', err);
 				}
 			}
 
@@ -537,14 +589,17 @@ export const bookingRouter = createTRPCRouter({
 				.where(eq(booking.id, input.bookingId))
 				.limit(1);
 
-			if (!b) throw new TRPCError({ code: "NOT_FOUND" });
+			if (!b) throw new TRPCError({ code: 'NOT_FOUND' });
 
-			const isAdmin = ctx.session.user.role === "admin";
+			const isAdmin = ctx.session.user.role === 'admin';
 			if (b.hostId !== ctx.session.user.id && !isAdmin) {
-				throw new TRPCError({ code: "FORBIDDEN" });
+				throw new TRPCError({ code: 'FORBIDDEN' });
 			}
 			if (b.status === BookingStatus.CANCELLED) {
-				throw new TRPCError({ code: "BAD_REQUEST", message: "Already declined" });
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Already declined',
+				});
 			}
 
 			await ctx.db
@@ -577,7 +632,7 @@ export const bookingRouter = createTRPCRouter({
 						}
 					}
 				} catch (err) {
-					console.error("[booking] Failed to decline calendar event:", err);
+					console.error('[booking] Failed to decline calendar event:', err);
 				}
 			}
 
@@ -587,7 +642,7 @@ export const bookingRouter = createTRPCRouter({
 	/** Sync booking statuses from Google Calendar responses */
 	syncFromCalendar: protectedProcedure.mutation(async ({ ctx }) => {
 		const userId = ctx.session.user.id;
-		const isAdmin = ctx.session.user.role === "admin";
+		const isAdmin = ctx.session.user.role === 'admin';
 
 		// Get all upcoming bookings with Google Calendar events
 		const upcomingBookings = await ctx.db
@@ -605,23 +660,30 @@ export const bookingRouter = createTRPCRouter({
 		if (withGoogleEvent.length === 0) return { synced: 0 };
 
 		// Collect unique token IDs from bookings (filter nulls)
-		const tokenIds = [...new Set(
-			withGoogleEvent
-				.map((b) => b.googleCalendarTokenId)
-				.filter((id): id is string => id !== null),
-		)];
+		const tokenIds = [
+			...new Set(
+				withGoogleEvent
+					.map((b) => b.googleCalendarTokenId)
+					.filter((id): id is string => id !== null),
+			),
+		];
 
 		// Fetch tokens by ID for bookings that have a token reference
 		const tokenByIdMap = await getValidTokensByIds(ctx.db, tokenIds);
 
 		// For legacy bookings without tokenId, get event target tokens per host
-		const hostsNeedingFallback = [...new Set(
-			withGoogleEvent
-				.filter((b) => !b.googleCalendarTokenId)
-				.map((b) => b.hostId),
-		)];
+		const hostsNeedingFallback = [
+			...new Set(
+				withGoogleEvent
+					.filter((b) => !b.googleCalendarTokenId)
+					.map((b) => b.hostId),
+			),
+		];
 
-		const fallbackTokenMap = new Map<string, Awaited<ReturnType<typeof getEventTargetToken>>>();
+		const fallbackTokenMap = new Map<
+			string,
+			Awaited<ReturnType<typeof getEventTargetToken>>
+		>();
 		for (const hostId of hostsNeedingFallback) {
 			fallbackTokenMap.set(hostId, await getEventTargetToken(ctx.db, hostId));
 		}
@@ -654,9 +716,21 @@ export const bookingRouter = createTRPCRouter({
 				});
 
 				let newStatus: string | null = null;
-				if (status === CalendarResponseStatus.ACCEPTED && b.status !== BookingStatus.CONFIRMED) newStatus = BookingStatus.CONFIRMED;
-				else if (status === CalendarResponseStatus.DECLINED && b.status !== BookingStatus.CANCELLED) newStatus = BookingStatus.CANCELLED;
-				else if (status === CalendarResponseStatus.NEEDS_ACTION && b.status !== BookingStatus.PENDING) newStatus = BookingStatus.PENDING;
+				if (
+					status === CalendarResponseStatus.ACCEPTED &&
+					b.status !== BookingStatus.CONFIRMED
+				)
+					newStatus = BookingStatus.CONFIRMED;
+				else if (
+					status === CalendarResponseStatus.DECLINED &&
+					b.status !== BookingStatus.CANCELLED
+				)
+					newStatus = BookingStatus.CANCELLED;
+				else if (
+					status === CalendarResponseStatus.NEEDS_ACTION &&
+					b.status !== BookingStatus.PENDING
+				)
+					newStatus = BookingStatus.PENDING;
 
 				if (newStatus) {
 					await ctx.db
@@ -666,7 +740,7 @@ export const bookingRouter = createTRPCRouter({
 					synced++;
 				}
 			} catch (err) {
-				console.error("[booking] Sync failed for booking:", b.id, err);
+				console.error('[booking] Sync failed for booking:', b.id, err);
 			}
 		}
 

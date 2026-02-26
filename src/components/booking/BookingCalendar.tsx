@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 import { useTranslation } from "@/i18n/context";
 import { cn } from "@/lib/utils";
@@ -88,7 +88,12 @@ export function BookingCalendar({
 			</div>
 
 			{/* Calendar grid */}
-			<div className="grid grid-cols-7 gap-1">
+			<div className="relative grid grid-cols-7 gap-1">
+				{isLoading && (
+					<div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/60">
+						<Loader2 className="size-5 animate-spin text-muted-foreground" />
+					</div>
+				)}
 				{cells.map((day, idx) => {
 					if (day === null) {
 						return <div key={`empty-${idx}`} className="aspect-square w-full md:h-[52px] md:w-[52px]" />;
