@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,9 +11,11 @@ import { toast } from "sonner";
 
 interface CalendarSelectorProps {
 	tokenId: string;
+	/** If this token is the event target, the calendar ID used for new events */
+	eventCalendarId?: string;
 }
 
-export function CalendarSelector({ tokenId }: CalendarSelectorProps) {
+export function CalendarSelector({ tokenId, eventCalendarId }: CalendarSelectorProps) {
 	const {
 		data,
 		isLoading,
@@ -51,6 +53,10 @@ export function CalendarSelector({ tokenId }: CalendarSelectorProps) {
 		data &&
 		(selectedIds.size !== data.selectedCalendarIds.length ||
 			[...selectedIds].some((id) => !(data.selectedCalendarIds as string[]).includes(id)));
+
+	// Track if user tried to uncheck the event target calendar
+	const eventCalendarUnchecked =
+		eventCalendarId !== undefined && !selectedIds.has(eventCalendarId);
 
 	function toggleCalendar(calendarId: string) {
 		setSelectedIds((prev) => {
@@ -135,11 +141,20 @@ export function CalendarSelector({ tokenId }: CalendarSelectorProps) {
 					</label>
 				))}
 
+				{eventCalendarUnchecked && (
+					<div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+						<AlertTriangle className="size-4 shrink-0" />
+						<span>
+							This calendar is used for new events. Change the event calendar below before unchecking it.
+						</span>
+					</div>
+				)}
+
 				{hasBusyChanges && (
 					<Button
 						size="sm"
 						onClick={handleSaveBusy}
-						disabled={updateBusyMutation.isPending}
+						disabled={updateBusyMutation.isPending || eventCalendarUnchecked}
 					>
 						{updateBusyMutation.isPending && (
 							<Loader2 className="size-4 animate-spin" />

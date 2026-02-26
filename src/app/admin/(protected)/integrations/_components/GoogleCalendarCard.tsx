@@ -95,7 +95,10 @@ export function GoogleCalendarCard() {
 									</Button>
 								</div>
 
-								<CalendarSelector tokenId={account.id} />
+								<CalendarSelector
+								tokenId={account.id}
+								eventCalendarId={account.isEventTarget ? account.calendarId : undefined}
+							/>
 
 								<Separator />
 							</div>

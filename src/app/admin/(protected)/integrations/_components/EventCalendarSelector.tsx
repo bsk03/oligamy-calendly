@@ -38,6 +38,23 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 		onError: (err) => toast.error(err.message),
 	});
 
+	// Collect selected (busy) calendar IDs across all accounts
+	const calendarQueries = accounts.map((account) =>
+		// eslint-disable-next-line react-hooks/rules-of-hooks
+		api.googleCalendar.listCalendars.useQuery({ tokenId: account.id }),
+	);
+
+	const selectedCalendarIdsByToken = useMemo(() => {
+		const map = new Map<string, Set<string>>();
+		accounts.forEach((account, i) => {
+			const data = calendarQueries[i]?.data;
+			if (data) {
+				map.set(account.id, new Set(data.selectedCalendarIds as string[]));
+			}
+		});
+		return map;
+	}, [accounts, calendarQueries]);
+
 	const currentValue = useMemo(() => {
 		const eventTarget = accounts.find((a) => a.isEventTarget);
 		if (!eventTarget) return "";
@@ -81,6 +98,7 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 							key={account.id}
 							account={account}
 							showLabel={accounts.length > 1}
+							selectedBusyIds={selectedCalendarIdsByToken.get(account.id)}
 						/>
 					))}
 				</SelectContent>
@@ -92,9 +110,11 @@ export function EventCalendarSelector({ accounts }: EventCalendarSelectorProps) 
 function AccountCalendarGroup({
 	account,
 	showLabel,
+	selectedBusyIds,
 }: {
 	account: Account;
 	showLabel: boolean;
+	selectedBusyIds: Set<string> | undefined;
 }) {
 	const { data, isLoading } = api.googleCalendar.listCalendars.useQuery({
 		tokenId: account.id,
@@ -109,7 +129,9 @@ function AccountCalendarGroup({
 	}
 
 	const calendars = (data?.calendars ?? []).filter(
-		(c) => c.accessRole === "owner" || c.accessRole === "writer",
+		(c) =>
+			(c.accessRole === "owner" || c.accessRole === "writer") &&
+			(selectedBusyIds ? selectedBusyIds.has(c.id) : true),
 	);
 
 	if (calendars.length === 0) return null;

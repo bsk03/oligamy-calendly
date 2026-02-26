@@ -167,8 +167,9 @@ export function CreateGroupDialog({
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
-							The host&apos;s calendar and availability schedule are used
-							for booking.
+							The host&apos;s Google Calendar is used to create events.
+							Available slots are based on the intersection of all
+							members&apos; availability.
 						</p>
 					</div>
 
